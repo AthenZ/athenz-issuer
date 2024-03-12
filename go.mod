@@ -1,6 +1,8 @@
 module github.com/AthenZ/athenz-issuer
 
-go 1.22
+go 1.21
+
+toolchain go1.21.8
 
 require (
 	github.com/AthenZ/athenz v1.11.53
