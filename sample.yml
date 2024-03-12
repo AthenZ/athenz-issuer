@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: athenz.example
+  namespace: default
+---
+apiVersion: cert-manager.athenz.io/v1
+kind: AthenzClusterIssuer
+metadata:
+  name: athenz-cluster-issuer
+spec:
+  ztsEndpoint: https://zts.athenzcompany.com/zts/v1
+  cloud: aws
+  region: us-east-1
+  providerPrefix: sys.k8s
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: example-com
+  namespace: default
+  annotations:
+    csi.cert-manager.athenz.io/identity: spiffe://cluster.local/ns/default/sa/athenz.example
+spec:
+  secretName: example-com-tls
+  duration: 2h
+  renewBefore: 1h
+  subject:
+    organizations:
+      - athenz
+  commonName: example.com
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - example.com
+    - www.example.com
+  uris:
+    - spiffe://cluster.local/ns/default/sa/athenz.example
+  ipAddresses:
+    - 192.168.0.6
+  issuerRef:
+    name: athenz-cluster-issuer
+    kind: AthenzClusterIssuer
+    group: cert-manager.athenz.io

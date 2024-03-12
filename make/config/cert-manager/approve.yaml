@@ -1,0 +1,27 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cert-manager-controller-approve:athenz-issuer-cert-manager-athenz-io
+rules:
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - signers
+  verbs:
+  - approve
+  resourceNames:
+  - athenzissuers.cert-manager.athenz.io/*
+  - athenzclusterissuers.cert-manager.athenz.io/*
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cert-manager-controller-approve:athenz-issuer-cert-manager-athenz-io
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cert-manager-controller-approve:athenz-issuer-cert-manager-athenz-io
+subjects:
+- kind: ServiceAccount
+  name: cert-manager
+  namespace: cert-manager
