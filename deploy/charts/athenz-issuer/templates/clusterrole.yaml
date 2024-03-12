@@ -1,0 +1,36 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ template "athenz-issuer.name" . }}
+  labels:
+    app.kubernetes.io/component: "rbac"
+    {{- include "athenz-issuer.labels" . | nindent 4 }}
+rules:
+- apiGroups: ["cert-manager.athenz.io"]
+  resources: ["athenzclusterissuers", "athenzissuers"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["cert-manager.athenz.io"]
+  resources: ["athenzclusterissuers/status", "athenzissuers/status"]
+  verbs: ["patch"]
+- apiGroups: ["cert-manager.io"]
+  resources: ["certificaterequests"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["cert-manager.io"]
+  resources: ["certificaterequests/status"]
+  verbs: ["patch"]
+- apiGroups: ["certificates.k8s.io"]
+  resources: ["certificatesigningrequests"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["certificates.k8s.io"]
+  resources: ["certificatesigningrequests/status"]
+  verbs: ["patch"]
+- apiGroups: ["certificates.k8s.io"]
+  resourceNames: ["athenzclusterissuers.cert-manager.athenz.io/*", "athenzissuers.cert-manager.athenz.io/*"]
+  resources: ["signers"]
+  verbs: ["sign"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+- apiGroups: [""]
+  resources: ["serviceaccounts","serviceaccounts/token"]
+  verbs: ["create", "get"]

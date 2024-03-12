@@ -1,0 +1,28 @@
+apiVersion: v2
+
+name: athenz-issuer
+type: application
+description: Athenz issuer is a sub-project of Athenz which acts as an external issuer for cert-manager to deliver Athenz X.509 certificate to pods
+
+home: https://www.athenz.io/projects.html#athenz-issuer
+icon: https://raw.githubusercontent.com/AthenZ/website/f3e94b8a8ecd2ff0b7948a891e73811dddfde453/favicon.ico
+keywords:
+- athenz
+- cert-manager
+- tls
+annotations:
+  artifacthub.io/alternativeName: athenz-issuer
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/category: security
+  artifacthub.io/recommendations: |
+    - url: https://artifacthub.io/packages/helm/cert-manager/cert-manager
+    - url: https://artifacthub.io/packages/helm/cert-manager/trust-manager
+maintainers:
+  - name: athenz-team
+    email: athenz-team@googlegroups.com
+    url: https://athenz.io
+sources:
+- https://github.com/AthenZ/athenz-issuer
+
+appVersion: v0.0.0
+version: v0.0.0
