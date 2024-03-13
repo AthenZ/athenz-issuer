@@ -9,6 +9,7 @@ env:
   REGISTRY_URL: docker.io
   REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
   REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+  REGISTRY_OWNER: athenz
 
 jobs:
   build_images:
@@ -104,3 +105,10 @@ jobs:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           CR_PACKAGE_PATH: ${{ steps.chart_download.outputs.download-path }}
           CR_SKIP_EXISTING: true
+
+      - name: push helm chart to docker hub
+        run: |
+          echo ${{ secrets.REGISTRY_PASSWORD }} | helm registry login -u ${{ secrets.REGISTRY_USERNAME }} --password-stdin registry-1.docker.io
+          cd "${{ steps.chart_download.outputs.download-path }}"
+          ls -ltr
+          helm push "${{ needs.build_images.outputs.RELEASE_HELM_CHART_NAME }}-${{ needs.build_images.outputs.RELEASE_HELM_CHART_VERSION }}.tgz" oci://registry-1.docker.io/${{ env.REGISTRY_OWNER }}
