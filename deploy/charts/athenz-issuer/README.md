@@ -9,7 +9,7 @@ The container registry to pull the controller image from.
 #### **image.repository** ~ `string`
 > Default value:
 > ```yaml
-> docker.io/athenz/athenz-issuer
+> docker.io/athenz/athenz-cert-manager-issuer
 > ```
 
 The container image for the athenz-issuer controller.
