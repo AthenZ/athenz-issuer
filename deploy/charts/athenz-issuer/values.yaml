@@ -5,7 +5,7 @@ image:
 
   # The container image for the athenz-issuer controller.
   # +docs:property
-  repository: docker.io/athenz/athenz-issuer
+  repository: docker.io/athenz/athenz-cert-manager-issuer
 
   # Override the image tag to deploy by setting this variable.
   # If no value is set, the chart's appVersion is used.

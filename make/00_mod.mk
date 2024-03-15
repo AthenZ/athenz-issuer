@@ -25,9 +25,9 @@ go_manager_main_dir := ./cmd
 go_manager_mod_dir := .
 go_manager_ldflags := -X $(repo_name)/internal/version.AppVersion=$(VERSION) -X $(repo_name)/internal/version.GitCommit=$(GITCOMMIT)
 oci_manager_base_image_flavor := static
-oci_manager_image_name := docker.io/athenz/athenz-issuer
+oci_manager_image_name := docker.io/athenz/athenz-cert-manager-issuer
 oci_manager_image_tag := $(VERSION)
-oci_manager_image_name_development := athenz.local/athenz-issuer
+oci_manager_image_name_development := athenz.local/athenz-cert-manager-issuer
 
 deploy_name := athenz-issuer
 deploy_namespace := athenz-issuer-system
