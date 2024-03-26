@@ -80,8 +80,13 @@ RELEASE_DRYRUN ?= false
 CGO_ENABLED ?= 0
 GOEXPERIMENT ?=  # empty by default
 
+COSIGN_FLAGS ?= # empty by default
+OCI_SIGN_ON_PUSH ?= true
+
 oci_build_targets := $(build_names:%=oci-build-%)
 oci_push_targets := $(build_names:%=oci-push-%)
+oci_push_no_sign_targets := $(build_names:%=oci-push-no-sign-%)
+oci_sign_targets := $(build_names:%=oci-sign-%)
 oci_maybe_push_targets := $(build_names:%=oci-maybe-push-%)
 oci_load_targets := $(build_names:%=oci-load-%)
 docker_tarball_targets := $(build_names:%=docker-tarball-%)
@@ -138,6 +143,21 @@ $(oci_build_targets): oci-build-%: | $(NEEDS_KO) $(NEEDS_GO) $(NEEDS_YQ) $(bin_d
 		$(CURDIR)/$(oci_layout_path_$*) \
 		> $(CURDIR)/$(oci_layout_path_$*).digests
 
+# Function for ensuring the .digests file exists. In the use case where pushing
+# and signing happen independently, we need to ensure this file exists for 
+# signing
+define oci_digest_ensure 
+ifeq ($(call oci_digest,$1),)
+$$(error "$(oci_layout_path_$1).digests" does not exist, has this image been built?)
+endif
+endef
+
+# Functions for pushing and signing. We have a few targets that push/sign, this
+# use of functions means we can define the commands once.
+oci_digest = $(shell head -1 $(CURDIR)/$(oci_layout_path_$1).digests)
+oci_push_command = $(foreach oci_image_name,$(oci_$1_image_name),$(CRANE) push "$(oci_layout_path_$1)" "$(oci_image_name):$(oci_$1_image_tag)";)
+oci_sign_command = $(foreach oci_image_name,$(oci_$1_image_name),$(COSIGN) sign --yes=true $(COSIGN_FLAGS) "$(oci_image_name)@$(call oci_digest,$1)";)
+
 .PHONY: $(oci_push_targets)
 ## Build and push OCI image.
 ## If the tag already exists, this target will overwrite it.
@@ -147,16 +167,14 @@ $(oci_build_targets): oci-build-%: | $(NEEDS_KO) $(NEEDS_GO) $(NEEDS_YQ) $(bin_d
 ## - :v1.2.3.sig, :sha256-0000001.sig
 ## @category [shared] Build
 $(oci_push_targets): oci-push-%: oci-build-% | $(NEEDS_CRANE) $(NEEDS_COSIGN) $(NEEDS_YQ) $(bin_dir)/scratch/image
-	$(eval image_ref := $(shell head -1 $(CURDIR)/$(oci_layout_path_$*).digests))
-
 ifneq ($(RELEASE_DRYRUN),true)
-	if $(CRANE) image digest $(oci_$*_image_name)@$(image_ref) >/dev/null 2>&1; then \
+	if $(CRANE) image digest $(oci_$*_image_name)@$(call oci_digest,$*) >/dev/null 2>&1; then \
 		echo "Digest already exists, will retag without resigning."; \
-		$(CRANE) push "$(oci_layout_path_$*)" "$(oci_$*_image_name):$(oci_$*_image_tag)"; \
+		$(call oci_push_command,$*) \
 	else \
 		echo "Digest does not yet exist, pushing image and signing."; \
-		$(CRANE) push "$(oci_layout_path_$*)" "$(oci_$*_image_name):$(oci_$*_image_tag)"; \
-		$(COSIGN) sign --yes=true "$(oci_$*_image_name)@$(image_ref)"; \
+		$(call oci_push_command,$*) \
+		$(call oci_sign_command,$*) \
 	fi
 endif
 
@@ -171,6 +189,24 @@ $(oci_maybe_push_targets): oci-maybe-push-%: | $(NEEDS_CRANE)
 		$(MAKE) oci-push-$*; \
 	fi
 
+.PHONY: $(oci_push_no_sign_targets)
+## Build and push OCI image.
+## If the tag already exists, this target will overwrite it.
+## If an identical image was already built before, we will add a new tag to it.
+## This target will not sign the image
+## Expected pushed images:
+## - :v1.2.3, @sha256:0000001
+## @category [shared] Build
+$(oci_push_no_sign_targets): oci-push-no-sign-%: oci-build-% | $(NEEDS_CRANE) $(bin_dir)/scratch/image
+	$(call oci_push_command,$*)
+
+.PHONY: $(oci_sign_targets)
+## Run 'make oci-sign-...' to force a sign of the image.
+## @category [shared] Build
+$(oci_sign_targets): oci-sign-%: | $(NEEDS_COSIGN)
+	$(eval $(call oci_digest_ensure,$*)) 
+	$(call oci_sign_command,$*)
+
 .PHONY: $(oci_load_targets)
 ## Build OCI image for the local architecture and load
 ## it into the $(kind_cluster_name) kind cluster.
@@ -181,6 +217,6 @@ $(oci_load_targets): oci-load-%: docker-tarball-% | kind-cluster $(NEEDS_KIND)
 ## Build Docker tarball image for the local architecture
 ## @category [shared] Build
 .PHONY: $(docker_tarball_targets)
-$(docker_tarball_targets): oci_platforms := ""
+$(docker_tarball_targets): oci_platforms := "linux/$(HOST_ARCH)"
 $(docker_tarball_targets): docker-tarball-%: oci-build-%
 	cd $(image_tool_dir) && GOWORK=off $(GO) run . convert-to-docker-tar $(CURDIR)/$(oci_layout_path_$*) $(docker_tarball_path_$*) $(oci_$*_image_name_development):$(oci_$*_image_tag)

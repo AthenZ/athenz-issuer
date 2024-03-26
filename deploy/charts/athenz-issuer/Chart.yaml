@@ -5,7 +5,7 @@ type: application
 description: Athenz issuer is a sub-project of Athenz which acts as an external issuer for cert-manager to deliver Athenz X.509 certificate to pods
 
 home: https://www.athenz.io/projects.html#athenz-issuer
-icon: https://raw.githubusercontent.com/AthenZ/website/f3e94b8a8ecd2ff0b7948a891e73811dddfde453/favicon.ico
+icon: https://raw.githubusercontent.com/AthenZ/website/6630075617e71732059f8c40b6ae82a04b8a034f/images/athenz-logo.png
 keywords:
 - athenz
 - cert-manager

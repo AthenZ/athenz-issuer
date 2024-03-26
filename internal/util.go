@@ -16,6 +16,8 @@ limitations under the License.
 package issuerutil
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"regexp"
 	"strings"
@@ -64,4 +66,33 @@ func ExtractDomainServiceFromServiceAccount(saName string) (string, string) {
 		service = saName[idx+1:]
 	}
 	return domain, service
+}
+
+func ExtractSpiffeURIFromCSR(csrBytes []byte) (string, error) {
+	// Decode the PEM encoded CSR
+	block, rest := pem.Decode(csrBytes)
+	if block == nil {
+		return "", fmt.Errorf("no PEM block found in input")
+	}
+	if block.Type != "CERTIFICATE REQUEST" {
+		return "", fmt.Errorf("not a certificate request PEM block")
+	}
+
+	if len(rest) > 0 {
+		return "", fmt.Errorf("unexpected data found after PEM block")
+	}
+
+	// Parse the CSR
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse CSR: %v", err)
+	}
+
+	for _, uri := range csr.URIs {
+		if strings.HasPrefix(uri.String(), "spiffe://") {
+			return uri.String(), nil
+		}
+	}
+
+	return "", fmt.Errorf("unable to extract SPIFFE URI from CSR")
 }
