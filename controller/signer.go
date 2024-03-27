@@ -107,25 +107,30 @@ func (s *Signer) Check(ctx context.Context, issuerObject v1alpha1.Issuer) error 
 	}
 
 	s.ztsClient = zts.NewClient(s.ztsEndpoint, tr)
-	s.ztsClient.AddCredentials("User-Agent", "athenz-issuer-v0.1.0")
+	s.ztsClient.AddCredentials("User-Agent", "athenz-issuer")
 	return nil
 }
 
 func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, issuerObject v1alpha1.Issuer) (signer.PEMBundle, error) {
 
-	// Get the service account name from cr
-	spiffeURI, err := issuerutil.ExtractSpiffeURIFromAnnotations(cr.GetAnnotations())
-	spiffeNS, spiffeSA, err := issuerutil.ExtractNamespaceAndServiceAccountFromSpiffeURI(spiffeURI)
-
-	// use the token in zts api call
-	saTok, err := getServiceAccountTokenFromAPIServer(spiffeNS, ctx, spiffeSA, s)
+	// load client certificate request
+	clientCRTTemplate, _, csrBytes, err := cr.GetRequest()
 	if err != nil {
 		return signer.PEMBundle{}, err
 	}
 
-	// load client certificate request
-	clientCRTTemplate, _, csrBytes, err := cr.GetRequest()
-	// _, _, csrBytes, err := cr.GetRequest()
+	// Get the service account name from cr
+	spiffeURI, err := issuerutil.ExtractSpiffeURIFromAnnotations(cr.GetAnnotations())
+	if err != nil {
+		fmt.Printf("Unable to extract spiffe uri from annotations, err: %v\n", err)
+		spiffeURI, err = issuerutil.ExtractSpiffeURIFromCSR(csrBytes)
+	}
+
+	fmt.Printf("spiffeURI=%s\n", spiffeURI)
+	spiffeNS, spiffeSA, err := issuerutil.ExtractNamespaceAndServiceAccountFromSpiffeURI(spiffeURI)
+
+	// use the token in zts api call
+	saTok, err := getServiceAccountTokenFromAPIServer(spiffeNS, ctx, spiffeSA, s)
 	if err != nil {
 		return signer.PEMBundle{}, err
 	}
@@ -137,10 +142,7 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 		IdentityToken: string(saTok),
 	})
 
-	fmt.Println("+++++++++++++++++++++++")
-	fmt.Printf("athenzDomain: %s\n", athenzDomain)
-	fmt.Printf("athenzService: %s\n", athenzService)
-	fmt.Printf("athenzProvider: %s\n", athenzProvider)
+	fmt.Printf("athenzDomain=%s athenzService=%s athenzProvider=%s\n", athenzDomain, athenzService, athenzProvider)
 
 	if s.cloud == "local" {
 		// generate random ca private key
@@ -169,6 +171,7 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 		}
 
 		clientCrt := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: clientCRTRaw})
+		fmt.Printf("clientCrt=%s\n", clientCrt)
 		return signer.PEMBundle{
 			ChainPEM: clientCrt,
 		}, nil
@@ -187,9 +190,7 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 			return signer.PEMBundle{}, err
 		}
 
-		fmt.Println("+++++++++++++++++++++++")
 		if identity != nil {
-			// fmt.Printf("identity: %+v\n", identity)
 			return signer.PEMBundle{
 				ChainPEM: []byte(identity.X509Certificate),
 			}, nil
