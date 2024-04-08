@@ -1,5 +1,5 @@
-github.com/AthenZ/athenz v1.11.54 h1:3rnUAOwMSk9ipFXhzB/UWjrBZ0yrKP1/aDDkj7RIWVE=
-github.com/AthenZ/athenz v1.11.54/go.mod h1:zpJZxAtX6YLEeMRpJzTC3TI6MQv3lrzz7YiPAPFvcDU=
+github.com/AthenZ/athenz v1.11.55 h1:ElB9FFVFBGSydV5oxOOHQZmFcmxtTmJs3S7Y69NDe0I=
+github.com/AthenZ/athenz v1.11.55/go.mod h1:zpJZxAtX6YLEeMRpJzTC3TI6MQv3lrzz7YiPAPFvcDU=
 github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 h1:mFRzDkZVAjdal+s7s0MwaRv9igoPqLRdzOLzw/8Xvq8=
 github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358/go.mod h1:chxPXzSsl7ZWRAuOIE23GDNzjWuZquvFlgA8xmpunjU=
 github.com/alexbrainman/sspi v0.0.0-20210105120005-909beea2cc74 h1:Kk6a4nehpJ3UuJRqlA3JxYxBZEqCeOmATOvrbT4p9RA=

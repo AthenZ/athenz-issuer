@@ -5,7 +5,7 @@ go 1.21
 toolchain go1.21.8
 
 require (
-	github.com/AthenZ/athenz v1.11.54
+	github.com/AthenZ/athenz v1.11.55
 	github.com/cert-manager/cert-manager v1.14.4
 	github.com/cert-manager/issuer-lib v0.6.0
 	github.com/go-logr/logr v1.4.1
