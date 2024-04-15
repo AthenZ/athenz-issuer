@@ -1,5 +1,5 @@
-github.com/AthenZ/athenz v1.11.54 h1:3rnUAOwMSk9ipFXhzB/UWjrBZ0yrKP1/aDDkj7RIWVE=
-github.com/AthenZ/athenz v1.11.54/go.mod h1:zpJZxAtX6YLEeMRpJzTC3TI6MQv3lrzz7YiPAPFvcDU=
+github.com/AthenZ/athenz v1.11.55 h1:ElB9FFVFBGSydV5oxOOHQZmFcmxtTmJs3S7Y69NDe0I=
+github.com/AthenZ/athenz v1.11.55/go.mod h1:zpJZxAtX6YLEeMRpJzTC3TI6MQv3lrzz7YiPAPFvcDU=
 github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 h1:mFRzDkZVAjdal+s7s0MwaRv9igoPqLRdzOLzw/8Xvq8=
 github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358/go.mod h1:chxPXzSsl7ZWRAuOIE23GDNzjWuZquvFlgA8xmpunjU=
 github.com/alexbrainman/sspi v0.0.0-20210105120005-909beea2cc74 h1:Kk6a4nehpJ3UuJRqlA3JxYxBZEqCeOmATOvrbT4p9RA=
@@ -241,8 +241,8 @@ k8s.io/kube-openapi v0.0.0-20240103051144-eec4567ac022 h1:avRdiaB03v88Mfvum2S3BB
 k8s.io/kube-openapi v0.0.0-20240103051144-eec4567ac022/go.mod h1:sIV51WBTkZrlGOJMCDZDA1IaPBUDTulPpD4y7oe038k=
 k8s.io/utils v0.0.0-20240310230437-4693a0247e57 h1:gbqbevonBh57eILzModw6mrkbwM0gQBEuevE/AaBsHY=
 k8s.io/utils v0.0.0-20240310230437-4693a0247e57/go.mod h1:OLgZIPagt7ERELqWJFomSt595RzquPNLL48iOWgYOg0=
-sigs.k8s.io/controller-runtime v0.17.2 h1:FwHwD1CTUemg0pW2otk7/U5/i5m2ymzvOXdbeGOUvw0=
-sigs.k8s.io/controller-runtime v0.17.2/go.mod h1:+MngTvIQQQhfXtwfdGw/UOQ/aIaqsYywfCINOtwMO/s=
+sigs.k8s.io/controller-runtime v0.17.3 h1:65QmN7r3FWgTxDMz9fvGnO1kbf2nu+acg9p2R9oYYYk=
+sigs.k8s.io/controller-runtime v0.17.3/go.mod h1:N0jpP5Lo7lMTF9aL56Z/B2oWBJjey6StQM0jRbKQXtY=
 sigs.k8s.io/gateway-api v1.0.0 h1:iPTStSv41+d9p0xFydll6d7f7MOBGuqXM6p2/zVYMAs=
 sigs.k8s.io/gateway-api v1.0.0/go.mod h1:4cUgr0Lnp5FZ0Cdq8FdRwCvpiWws7LVhLHGIudLlf4c=
 sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd h1:EDPBXCAspyGV4jQlpZSudPeMmr1bNJefnuqLsRAsHZo=

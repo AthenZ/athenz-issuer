@@ -5,7 +5,7 @@ go 1.21
 toolchain go1.21.8
 
 require (
-	github.com/AthenZ/athenz v1.11.54
+	github.com/AthenZ/athenz v1.11.55
 	github.com/cert-manager/cert-manager v1.14.4
 	github.com/cert-manager/issuer-lib v0.6.0
 	github.com/go-logr/logr v1.4.1
@@ -17,7 +17,7 @@ require (
 	k8s.io/client-go v0.29.3
 	k8s.io/klog/v2 v2.120.1
 	k8s.io/utils v0.0.0-20240310230437-4693a0247e57
-	sigs.k8s.io/controller-runtime v0.17.2
+	sigs.k8s.io/controller-runtime v0.17.3
 )
 
 require (
