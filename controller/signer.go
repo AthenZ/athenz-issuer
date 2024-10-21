@@ -104,6 +104,7 @@ func (s *Signer) Check(ctx context.Context, issuerObject v1alpha1.Issuer) error 
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{},
 		Proxy:           http.ProxyFromEnvironment,
+		DisableKeepAlives: true,
 	}
 
 	s.ztsClient = zts.NewClient(s.ztsEndpoint, tr)

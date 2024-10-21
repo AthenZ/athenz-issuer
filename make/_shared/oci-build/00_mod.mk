@@ -15,12 +15,12 @@
 oci_platforms ?= linux/amd64,linux/arm/v7,linux/arm64,linux/ppc64le
 
 # Use distroless as minimal base image to package the manager binary
-# To get latest SHA run crane digest quay.io/jetstack/base-static:latest
-base_image_static := quay.io/jetstack/base-static@sha256:ba3cff0a4cacc5ae564e04c1f645000e8c9234c0f4b09534be1dee7874a42141
+# To get latest SHA run "crane digest quay.io/jetstack/base-static:latest"
+base_image_static := quay.io/jetstack/base-static@sha256:cabab50de0aff1134320f01a00cbe00efdecbe01b7661377b87ecda45485ff97
 
 # Use custom apko-built image as minimal base image to package the manager binary
-# To get latest SHA run crane digest quay.io/jetstack/base-static-csi:latest
-base_image_csi-static := quay.io/jetstack/base-static-csi@sha256:54bacd13cccc385ef66730dbc7eb13bdb6a9ff8853e7f551d025ccb0e8c6bf83
+# To get latest SHA run "crane digest quay.io/jetstack/base-static-csi:latest"
+base_image_csi-static := quay.io/jetstack/base-static-csi@sha256:7d424631e58b74d2fe01ecf5ffb20296fe4ce74bd3adef3738c183c53be3baea
 
 # Utility functions
 fatal_if_undefined = $(if $(findstring undefined,$(origin $1)),$(error $1 is not set))
@@ -39,6 +39,7 @@ GOEXPERIMENT ?=  # empty by default
 define default_per_build_variables
 cgo_enabled_$1 ?= $(CGO_ENABLED)
 goexperiment_$1 ?= $(GOEXPERIMENT)
+oci_additional_layers_$1 ?= 
 endef
 
 $(foreach build_name,$(build_names),$(eval $(call default_per_build_variables,$(build_name))))
