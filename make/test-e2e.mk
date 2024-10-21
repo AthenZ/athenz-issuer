@@ -32,8 +32,8 @@ e2e-setup-cert-manager: | kind-cluster $(NEEDS_HELM) $(NEEDS_KUBECTL)
 		--set webhook.image.repository=$(quay.io/jetstack/cert-manager-webhook.REPO) \
 		--set webhook.image.tag=$(quay.io/jetstack/cert-manager-webhook.TAG) \
 		--set webhook.image.pullPolicy=Never \
-		--set startupapicheck.image.repository=$(quay.io/jetstack/cert-manager-ctl.REPO) \
-		--set startupapicheck.image.tag=$(quay.io/jetstack/cert-manager-ctl.TAG) \
+		--set startupapicheck.image.repository=$(quay.io/jetstack/cert-manager-startupapicheck.REPO) \
+		--set startupapicheck.image.tag=$(quay.io/jetstack/cert-manager-startupapicheck.TAG) \
 		--set startupapicheck.image.pullPolicy=Never \
 		cert-manager cert-manager >/dev/null
 	
@@ -59,12 +59,14 @@ test-e2e-deps: install
 .PHONY: test-e2e
 ## e2e end-to-end tests
 ## @category Testing
-test-e2e: test-e2e-deps | kind-cluster $(NEEDS_GINKGO) $(NEEDS_KUBECTL) $(ARTIFACTS)
-	$(GINKGO) \
-		--output-dir=$(ARTIFACTS) \
-		--junit-report=junit-go-e2e.xml \
-		./e2e/ \
-		-ldflags $(go_manager_ldflags) \
+test-e2e: test-e2e-deps | kind-cluster $(NEEDS_GOTESTSUM) $(ARTIFACTS)
+	$(eval abs_artifacts := $(abspath $(ARTIFACTS)))
+	GOWORK=off \
+	KUBECONFIG=$(CURDIR)/$(kind_kubeconfig) \
+	$(GOTESTSUM) \
+		--junitfile=$(abs_artifacts)/junit-go-e2e.xml \
 		-- \
-		--kubeconfig-path=$(CURDIR)/$(kind_kubeconfig) \
-		--kubectl-path=$(KUBECTL)
+		-coverprofile=$(abs_artifacts)/filtered.cov \
+		./e2e/... \
+		-- \
+		-ldflags $(go_manager_ldflags)
