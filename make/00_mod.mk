@@ -38,11 +38,10 @@ api_docs_branch := main
 
 helm_chart_source_dir := deploy/charts/athenz-issuer
 helm_chart_name := athenz-issuer
+helm_chart_image_name := docker.io/athenz/charts/athenz-issuer
 helm_chart_version := $(VERSION)
 helm_labels_template_name := athenz-issuer.labels
-helm_docs_use_helm_tool := 1
-helm_generate_schema := 1 
-helm_verify_values := 1 
+golangci_lint_config := .golangci.yaml
 
 define helm_values_mutation_function
 $(YQ) \
