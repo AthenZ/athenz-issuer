@@ -5,36 +5,49 @@ name: make-self-upgrade
 concurrency: make-self-upgrade
 on:
   workflow_dispatch: {}
-  # schedule:
-  #   - cron: '0 0 * * *'
+  schedule:
+    - cron: '0 0 * * *'
+
+permissions:
+  contents: read
 
 jobs:
-  build_images:
+  self_upgrade:
     runs-on: ubuntu-latest
+
+    if: github.repository_owner == 'cert-manager'
 
     permissions:
       contents: write
       pull-requests: write
+    
+    env:
+      SOURCE_BRANCH: "${{ github.ref_name }}"
+      SELF_UPGRADE_BRANCH: "self-upgrade-${{ github.ref_name }}"
 
     steps:
-      - name: Fail if branch is not main
-        if: github.ref != 'refs/heads/main'
+      - name: Fail if branch is not head of branch.
+        if: ${{ !startsWith(github.ref, 'refs/heads/') && env.SOURCE_BRANCH != '' && env.SELF_UPGRADE_BRANCH != '' }}
         run: |
-          echo "This workflow should not be run on a branch other than main."
+          echo "This workflow should not be run on a non-branch-head."
           exit 1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        # Adding `fetch-depth: 0` makes sure tags are also fetched. We need
+        # the tags so `git describe` returns a valid version.
+        # see https://github.com/actions/checkout/issues/701 for extra info about this option
+        with: { fetch-depth: 0 }
 
       - id: go-version
         run: |
           make print-go-version >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version: ${{ steps.go-version.outputs.result }}
 
       - run: |
-          git checkout -B "self-upgrade"
+          git checkout -B "$SELF_UPGRADE_BRANCH"
 
       - run: |
           make -j upgrade-klone
@@ -54,33 +67,39 @@ jobs:
 
       - if: ${{ steps.is-up-to-date.outputs.result != 'true' }}
         run: |
-          git config --global user.name "athenz-bot"
-          git config --global user.email "athenz-bot@users.noreply.github.com"
+          git config --global user.name "cert-manager-bot"
+          git config --global user.email "cert-manager-bot@users.noreply.github.com"
           git add -A && git commit -m "BOT: run 'make upgrade-klone' and 'make generate'" --signoff
-          git push -f origin self-upgrade
+          git push -f origin "$SELF_UPGRADE_BRANCH"
 
       - if: ${{ steps.is-up-to-date.outputs.result != 'true' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           script: |
             const { repo, owner } = context.repo;
             const pulls = await github.rest.pulls.list({
               owner: owner,
               repo: repo,
-              head: owner + ':self-upgrade',
-              base: 'main',
+              head: owner + ':' + process.env.SELF_UPGRADE_BRANCH,
+              base: process.env.SOURCE_BRANCH,
               state: 'open',
             });
             
             if (pulls.data.length < 1) {
-              await github.rest.pulls.create({
-                title: '[CI] Merge self-upgrade into main',
+              const result = await github.rest.pulls.create({
+                title: '[CI] Merge ' + process.env.SELF_UPGRADE_BRANCH + ' into ' + process.env.SOURCE_BRANCH,
                 owner: owner,
                 repo: repo,
-                head: 'self-upgrade',
-                base: 'main',
+                head: process.env.SELF_UPGRADE_BRANCH,
+                base: process.env.SOURCE_BRANCH,
                 body: [
                   'This PR is auto-generated to bump the Makefile modules.',
                 ].join('\n'),
+              });
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: result.data.number,
+                labels: ['skip-review']
               });
             }

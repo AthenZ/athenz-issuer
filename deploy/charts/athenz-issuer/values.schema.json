@@ -1,0 +1,226 @@
+{
+  "$defs": {
+    "helm-values": {
+      "additionalProperties": false,
+      "properties": {
+        "commonLabels": {
+          "$ref": "#/$defs/helm-values.commonLabels"
+        },
+        "crds": {
+          "$ref": "#/$defs/helm-values.crds"
+        },
+        "fullnameOverride": {
+          "$ref": "#/$defs/helm-values.fullnameOverride"
+        },
+        "global": {
+          "$ref": "#/$defs/helm-values.global"
+        },
+        "image": {
+          "$ref": "#/$defs/helm-values.image"
+        },
+        "imagePullSecrets": {
+          "$ref": "#/$defs/helm-values.imagePullSecrets"
+        },
+        "nameOverride": {
+          "$ref": "#/$defs/helm-values.nameOverride"
+        },
+        "replicaCount": {
+          "$ref": "#/$defs/helm-values.replicaCount"
+        },
+        "resources": {
+          "$ref": "#/$defs/helm-values.resources"
+        },
+        "serviceAccount": {
+          "$ref": "#/$defs/helm-values.serviceAccount"
+        }
+      },
+      "type": "object"
+    },
+    "helm-values.commonLabels": {
+      "default": {},
+      "description": "Labels to apply to all resources",
+      "type": "object"
+    },
+    "helm-values.crds": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/helm-values.crds.enabled"
+        },
+        "keep": {
+          "$ref": "#/$defs/helm-values.crds.keep"
+        }
+      },
+      "type": "object"
+    },
+    "helm-values.crds.enabled": {
+      "default": true,
+      "type": "boolean"
+    },
+    "helm-values.crds.keep": {
+      "default": true,
+      "type": "boolean"
+    },
+    "helm-values.fullnameOverride": {
+      "description": "Override the full name"
+    },
+    "helm-values.global": {
+      "description": "Global values shared across all (sub)charts"
+    },
+    "helm-values.image": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/helm-values.image.digest"
+        },
+        "pullPolicy": {
+          "$ref": "#/$defs/helm-values.image.pullPolicy"
+        },
+        "registry": {
+          "$ref": "#/$defs/helm-values.image.registry"
+        },
+        "repository": {
+          "$ref": "#/$defs/helm-values.image.repository"
+        },
+        "tag": {
+          "$ref": "#/$defs/helm-values.image.tag"
+        }
+      },
+      "type": "object"
+    },
+    "helm-values.image.digest": {
+      "default": {},
+      "description": "Target athenz-issuer digest. Override any tag, if set.\nFor example:\nmanager: sha256:0e072dddd1f7f8fc8909a2ca6f65e76c5f0d2fcfb8be47935ae3457e8bbceb20\nmanager: sha256:...",
+      "type": "object"
+    },
+    "helm-values.image.pullPolicy": {
+      "default": "IfNotPresent",
+      "description": "Kubernetes imagePullPolicy on Deployment",
+      "type": "string"
+    },
+    "helm-values.image.registry": {
+      "description": "The container registry to pull the controller image from.",
+      "type": "string"
+    },
+    "helm-values.image.repository": {
+      "default": "docker.io/athenz/athenz-cert-manager-issuer",
+      "description": "The container image for the athenz-issuer controller.",
+      "type": "string"
+    },
+    "helm-values.image.tag": {
+      "description": "Override the image tag to deploy by setting this variable. If no value is set, the chart's appVersion is used.",
+      "type": "string"
+    },
+    "helm-values.imagePullSecrets": {
+      "default": [],
+      "description": "Optional secrets used for pulling the athenz-issuer container image\nFor example:\nimagePullSecrets:\n  - name: \"image-pull-secret\"",
+      "items": {},
+      "type": "array"
+    },
+    "helm-values.nameOverride": {
+      "description": "Override the name"
+    },
+    "helm-values.replicaCount": {
+      "default": 1,
+      "type": "number"
+    },
+    "helm-values.resources": {
+      "additionalProperties": false,
+      "properties": {
+        "limits": {
+          "$ref": "#/$defs/helm-values.resources.limits"
+        },
+        "requests": {
+          "$ref": "#/$defs/helm-values.resources.requests"
+        }
+      },
+      "type": "object"
+    },
+    "helm-values.resources.limits": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "$ref": "#/$defs/helm-values.resources.limits.cpu"
+        },
+        "memory": {
+          "$ref": "#/$defs/helm-values.resources.limits.memory"
+        }
+      },
+      "type": "object"
+    },
+    "helm-values.resources.limits.cpu": {
+      "default": "500m",
+      "type": "string"
+    },
+    "helm-values.resources.limits.memory": {
+      "default": "128Mi",
+      "type": "string"
+    },
+    "helm-values.resources.requests": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "$ref": "#/$defs/helm-values.resources.requests.cpu"
+        },
+        "memory": {
+          "$ref": "#/$defs/helm-values.resources.requests.memory"
+        }
+      },
+      "type": "object"
+    },
+    "helm-values.resources.requests.cpu": {
+      "default": "100m",
+      "type": "string"
+    },
+    "helm-values.resources.requests.memory": {
+      "default": "64Mi",
+      "type": "string"
+    },
+    "helm-values.serviceAccount": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "$ref": "#/$defs/helm-values.serviceAccount.annotations"
+        },
+        "automountServiceAccountToken": {
+          "$ref": "#/$defs/helm-values.serviceAccount.automountServiceAccountToken"
+        },
+        "create": {
+          "$ref": "#/$defs/helm-values.serviceAccount.create"
+        },
+        "labels": {
+          "$ref": "#/$defs/helm-values.serviceAccount.labels"
+        },
+        "name": {
+          "$ref": "#/$defs/helm-values.serviceAccount.name"
+        }
+      },
+      "type": "object"
+    },
+    "helm-values.serviceAccount.annotations": {
+      "default": {},
+      "description": "Optional additional annotations to add to the controller's Service Account.",
+      "type": "object"
+    },
+    "helm-values.serviceAccount.automountServiceAccountToken": {
+      "default": true,
+      "description": "Automount API credentials for a Service Account.",
+      "type": "boolean"
+    },
+    "helm-values.serviceAccount.create": {
+      "default": true,
+      "description": "Specifies whether a service account should be created.",
+      "type": "boolean"
+    },
+    "helm-values.serviceAccount.labels": {
+      "description": "Optional additional labels to add to the controller's Service Account.",
+      "type": "object"
+    },
+    "helm-values.serviceAccount.name": {
+      "description": "The name of the service account to use.\nIf not set and create is true, a name is generated using the fullname template.",
+      "type": "string"
+    }
+  },
+  "$ref": "#/$defs/helm-values",
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

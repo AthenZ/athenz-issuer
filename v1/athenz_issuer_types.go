@@ -41,12 +41,12 @@ type AthenzIssuer struct {
 	Status v1alpha1.IssuerStatus   `json:"status,omitempty"`
 }
 
-func (vi *AthenzIssuer) GetStatus() *v1alpha1.IssuerStatus {
-	return &vi.Status
-}
-
 func (vi *AthenzIssuer) GetIssuerTypeIdentifier() string {
 	return "athenzissuers.cert-manager.athenz.io"
+}
+
+func (vi *AthenzIssuer) GetStatus() *v1alpha1.IssuerStatus {
+	return &vi.Status
 }
 
 var _ v1alpha1.Issuer = &AthenzIssuer{}
