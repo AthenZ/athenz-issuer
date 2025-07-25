@@ -102,8 +102,8 @@ func (s *Signer) Check(ctx context.Context, issuerObject v1alpha1.Issuer) error 
 	}
 	// create zts client
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{},
-		Proxy:           http.ProxyFromEnvironment,
+		TLSClientConfig:   &tls.Config{},
+		Proxy:             http.ProxyFromEnvironment,
 		DisableKeepAlives: true,
 	}
 
@@ -215,7 +215,13 @@ func getServiceAccountTokenFromAPIServer(namespaceName string, ctx context.Conte
 
 	sa, err := clientset.CoreV1().ServiceAccounts(namespaceName).Get(ctx, spiffeSA, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("failed to get service account: %w", err)
+		// try with a fallback service account name
+		_, fallbackSA := issuerutil.ExtractDomainServiceFromServiceAccount(spiffeSA)
+		sa, err = clientset.CoreV1().ServiceAccounts(namespaceName).Get(ctx, fallbackSA, metav1.GetOptions{})
+		if err != nil {
+			// if we still can't find the service account, return an error
+			return "", fmt.Errorf("failed to get service account %s or %s in namespace %s: %w", spiffeSA, fallbackSA, namespaceName, err)
+		}
 	}
 
 	tr := &authenticationv1.TokenRequest{

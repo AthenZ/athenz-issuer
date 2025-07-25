@@ -5,8 +5,8 @@ name: make-self-upgrade
 concurrency: make-self-upgrade
 on:
   workflow_dispatch: {}
-  schedule:
-    - cron: '0 0 * * *'
+#  schedule:
+#    - cron: '0 0 * * *'
 
 permissions:
   contents: read
@@ -15,7 +15,7 @@ jobs:
   self_upgrade:
     runs-on: ubuntu-latest
 
-    if: github.repository_owner == 'cert-manager'
+    if: github.repository_owner == 'AthenZ'
 
     permissions:
       contents: write
@@ -67,8 +67,8 @@ jobs:
 
       - if: ${{ steps.is-up-to-date.outputs.result != 'true' }}
         run: |
-          git config --global user.name "cert-manager-bot"
-          git config --global user.email "cert-manager-bot@users.noreply.github.com"
+          git config --global user.name "athenz-bot"
+          git config --global user.email "athenz-bot@users.noreply.github.com"
           git add -A && git commit -m "BOT: run 'make upgrade-klone' and 'make generate'" --signoff
           git push -f origin "$SELF_UPGRADE_BRANCH"
 
