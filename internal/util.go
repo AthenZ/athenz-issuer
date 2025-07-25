@@ -24,14 +24,14 @@ import (
 )
 
 const (
-	SPIFFE_URI_PATTERN = `^spiffe://[^/]+/ns/([^/]+)/sa/([^/]+)$`
+	SpiffeUriPattern = `^spiffe://[^/]+/ns/([^/]+)/sa/([^/]+)$`
 )
 
 var (
-	regex = regexp.MustCompile(SPIFFE_URI_PATTERN)
+	regex = regexp.MustCompile(SpiffeUriPattern)
 )
 
-// Given a spiffe uri in the format of spiffe://<trust-domain>/ns/<ns>/sa/<sa>
+// ExtractNamespaceAndServiceAccountFromSpiffeURI Given a spiffe uri in the format of spiffe://<trust-domain>/ns/<ns>/sa/<sa>
 // write a function in golang to return the namespace and service account name
 // e.g spiffe://cluster.local/ns/default/sa/athenz.example => return default, athenz.example
 func ExtractNamespaceAndServiceAccountFromSpiffeURI(spiffeURI string) (string, string, error) {
@@ -56,11 +56,11 @@ func ExtractSpiffeURIFromAnnotations(annotations map[string]string) (string, err
 	return spiffeURI, nil
 }
 
-// extract domain and service from the service account name
+// ExtractDomainServiceFromServiceAccount extract domain and service from the service account name
 // e.g. athenz.prod.api -> domain: athenz.prod, service: api
 func ExtractDomainServiceFromServiceAccount(saName string) (string, string) {
 	domain := ""
-	service := ""
+	service := saName
 	if idx := strings.LastIndex(saName, "."); idx != -1 {
 		domain = saName[:idx]
 		service = saName[idx+1:]

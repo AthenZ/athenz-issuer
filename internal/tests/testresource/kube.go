@@ -20,12 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	goruntime "runtime"
 	"testing"
 	"time"
 
-	athenzissuerapi "github.com/AthenZ/athenz-issuer/v1"
 	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/stretchr/testify/require"
 	certificatesv1 "k8s.io/api/certificates/v1"
@@ -34,6 +32,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -42,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	"github.com/AthenZ/athenz-issuer/internal/kubeutil"
+	athenzissuerapi "github.com/AthenZ/athenz-issuer/v1"
 )
 
 type OwnedKubeClients struct {
@@ -52,7 +52,7 @@ type OwnedKubeClients struct {
 	Client     client.WithWatch
 }
 
-func KubeClients(tb testing.TB, ctx context.Context) *OwnedKubeClients {
+func KubeClients(tb testing.TB, kubeconfig *string) *OwnedKubeClients {
 	tb.Helper()
 
 	scheme := runtime.NewScheme()
@@ -65,13 +65,10 @@ func KubeClients(tb testing.TB, ctx context.Context) *OwnedKubeClients {
 		Scheme: scheme,
 	}
 
-	switch CurrentTestMode(ctx) {
-	case UnitTest:
+	if kubeconfig == nil {
 		testKubernetes.initTestEnv(tb, testKubernetes.Scheme)
-	case EndToEndTest:
-		testKubernetes.initExistingKubernetes(tb, testKubernetes.Scheme)
-	default:
-		tb.Fatalf("unknown test mode specified")
+	} else {
+		testKubernetes.initExistingKubernetes(tb, *kubeconfig)
 	}
 
 	kubeClientset, err := kubernetes.NewForConfig(testKubernetes.Rest)
@@ -106,9 +103,10 @@ func (k *OwnedKubeClients) initTestEnv(tb testing.TB, scheme *runtime.Scheme) {
 	k.Rest = cfg
 }
 
-func (k *OwnedKubeClients) initExistingKubernetes(tb testing.TB, scheme *runtime.Scheme) {
+func (k *OwnedKubeClients) initExistingKubernetes(tb testing.TB, kubeconfig string) {
 	tb.Helper()
 
+	tb.Setenv("KUBECONFIG", kubeconfig)
 	kubeConfig, err := config.GetConfigWithContext("")
 	require.NoError(tb, err)
 
@@ -207,20 +205,10 @@ func (k *OwnedKubeClients) StartObjectWatch(
 	}
 }
 
-const letterBytes = "abcdefghijklmnopqrstuvwxyz"
-
-func randStringBytes(n int) string {
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
-	}
-	return string(b)
-}
-
 func (k *OwnedKubeClients) SetupNamespace(tb testing.TB, ctx context.Context) (string, context.CancelFunc) {
 	tb.Helper()
 
-	namespace := randStringBytes(15)
+	namespace := rand.String(15)
 
 	removeNamespace := func(cleanupCtx context.Context) (bool, error) {
 		err := k.KubeClient.CoreV1().Namespaces().Delete(cleanupCtx, namespace, metav1.DeleteOptions{})
@@ -258,6 +246,7 @@ func (k *OwnedKubeClients) SetupNamespace(tb testing.TB, ctx context.Context) (s
 	stopped := false
 	checkFunctionCalledBeforeCleanup(tb, "SetupNamespace", "CancelFunc", &stopped)
 
+	// nolint: contextcheck // This cleanup context is used for cleanup and is created after the test context has been cancelled.
 	return namespace, func() {
 		defer func() { stopped = true }()
 
@@ -265,58 +254,6 @@ func (k *OwnedKubeClients) SetupNamespace(tb testing.TB, ctx context.Context) (s
 		defer cancel()
 
 		_, err := removeNamespace(cleanupCtx)
-		require.NoError(tb, err)
-	}
-}
-
-func (k *OwnedKubeClients) SetupServiceAccount(tb testing.TB, ctx context.Context, namespace string) (string, context.CancelFunc) {
-	tb.Helper()
-
-	serviceAccount := "athenz." + randStringBytes(15)
-
-	removeServiceAccount := func(cleanupCtx context.Context) (bool, error) {
-		err := k.KubeClient.CoreV1().ServiceAccounts(namespace).Delete(cleanupCtx, serviceAccount, metav1.DeleteOptions{})
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				return true, nil
-			}
-			return false, err
-		}
-		return false, nil
-	}
-
-	cleanupExisting := func(cleanupCtx context.Context) error {
-		complete := k.StartObjectWatch(tb, cleanupCtx, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: serviceAccount, Namespace: namespace}})
-		defer require.NoError(tb, complete(nil))
-
-		if notFound, err := removeServiceAccount(cleanupCtx); err != nil {
-			return err
-		} else if notFound {
-			return nil
-		}
-
-		return complete(func(o runtime.Object) error {
-			return nil
-		}, watch.Deleted)
-	}
-	require.NoError(tb, cleanupExisting(ctx))
-
-	saObj := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{Name: serviceAccount, Namespace: namespace},
-	}
-	_, err := k.KubeClient.CoreV1().ServiceAccounts(namespace).Create(ctx, saObj, metav1.CreateOptions{})
-	require.NoError(tb, err)
-
-	stopped := false
-	checkFunctionCalledBeforeCleanup(tb, "SetupServiceAccount", "CancelFunc", &stopped)
-
-	return serviceAccount, func() {
-		defer func() { stopped = true }()
-
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		_, err := removeServiceAccount(cleanupCtx)
 		require.NoError(tb, err)
 	}
 }
