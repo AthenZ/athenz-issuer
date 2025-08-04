@@ -5,8 +5,8 @@ go 1.24.0
 toolchain go1.24.3
 
 require (
-	github.com/AthenZ/athenz v1.12.21
-	github.com/cert-manager/cert-manager v1.18.1
+	github.com/AthenZ/athenz v1.12.22
+	github.com/cert-manager/cert-manager v1.18.2
 	github.com/cert-manager/issuer-lib v0.8.0
 	github.com/go-logr/logr v1.4.3
 	github.com/stretchr/testify v1.10.0
