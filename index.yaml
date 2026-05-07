@@ -10,6 +10,37 @@ entries:
         - url: https://artifacthub.io/packages/helm/cert-manager/cert-manager
         - url: https://artifacthub.io/packages/helm/cert-manager/trust-manager
     apiVersion: v2
+    appVersion: v0.0.8
+    created: "2026-05-07T20:50:49.545341804Z"
+    description: Athenz issuer is a sub-project of Athenz which acts as an external
+      issuer for cert-manager to deliver Athenz X.509 certificate to pods
+    digest: 5189d35c7ec038838bb4ee5d743b8b5d33d10514d6762371fbef65e08ae85dd5
+    home: https://www.athenz.io/projects.html#athenz-issuer
+    icon: https://raw.githubusercontent.com/AthenZ/website/6630075617e71732059f8c40b6ae82a04b8a034f/images/athenz-logo.png
+    keywords:
+    - athenz
+    - cert-manager
+    - tls
+    maintainers:
+    - email: athenz-team@googlegroups.com
+      name: athenz-team
+      url: https://athenz.io
+    name: athenz-issuer
+    sources:
+    - https://github.com/AthenZ/athenz-issuer
+    type: application
+    urls:
+    - https://github.com/AthenZ/athenz-issuer/releases/download/athenz-issuer-v0.0.8/athenz-issuer-v0.0.8.tgz
+    version: v0.0.8
+  - annotations:
+      artifacthub.io/alternativeName: athenz-issuer
+      artifacthub.io/category: security
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/prerelease: "false"
+      artifacthub.io/recommendations: |
+        - url: https://artifacthub.io/packages/helm/cert-manager/cert-manager
+        - url: https://artifacthub.io/packages/helm/cert-manager/trust-manager
+    apiVersion: v2
     appVersion: v0.0.7
     created: "2025-07-25T19:45:52.163648209Z"
     description: Athenz issuer is a sub-project of Athenz which acts as an external
@@ -187,4 +218,4 @@ entries:
     urls:
     - https://github.com/AthenZ/athenz-issuer/releases/download/athenz-issuer-v0.0.1/athenz-issuer-v0.0.1.tgz
     version: v0.0.1
-generated: "2025-07-25T19:45:52.163681804Z"
+generated: "2026-05-07T20:50:49.545369821Z"
