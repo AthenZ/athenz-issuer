@@ -35,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	issuerutil "github.com/AthenZ/athenz-issuer/internal"
@@ -72,6 +73,14 @@ type K8SAttestationData struct {
 }
 
 func (s Signer) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes clientset for events: %w", err)
+	}
+
+	eventBroadcaster := events.NewEventBroadcasterAdapterWithContext(ctx, clientset)
+	eventBroadcaster.StartRecordingToSink(ctx.Done())
+
 	return (&controllers.CombinedController{
 		IssuerTypes:        []v1alpha1.Issuer{&athenzissuerapi.AthenzIssuer{}},
 		ClusterIssuerTypes: []v1alpha1.Issuer{&athenzissuerapi.AthenzClusterIssuer{}},
@@ -81,7 +90,7 @@ func (s Signer) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 
 		Sign:          s.Sign,
 		Check:         s.Check,
-		EventRecorder: mgr.GetEventRecorderFor("athenzissuer.cert-manager.athenz.io"),
+		EventRecorder: eventBroadcaster.NewRecorder("athenzissuer.cert-manager.athenz.io"),
 	}).SetupWithManager(ctx, mgr)
 }
 
@@ -113,12 +122,15 @@ func (s *Signer) Check(ctx context.Context, issuerObject v1alpha1.Issuer) error 
 }
 
 func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, issuerObject v1alpha1.Issuer) (signer.PEMBundle, error) {
-
-	// load client certificate request
-	clientCRTTemplate, _, csrBytes, err := cr.GetRequest()
+	details, err := cr.GetCertificateDetails()
 	if err != nil {
 		return signer.PEMBundle{}, err
 	}
+	clientCRTTemplate, err := details.CertificateTemplate()
+		if err != nil {
+			return signer.PEMBundle{}, err
+		}
+	csrBytes := details.CSR
 
 	// Get the service account name from cr
 	spiffeURI, err := issuerutil.ExtractSpiffeURIFromAnnotations(cr.GetAnnotations())

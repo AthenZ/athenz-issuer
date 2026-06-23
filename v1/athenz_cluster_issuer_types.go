@@ -46,6 +46,10 @@ func (vi *AthenzClusterIssuer) GetStatus() *v1alpha1.IssuerStatus {
 	return &vi.Status
 }
 
+func (vi *AthenzClusterIssuer) GetConditions() []metav1.Condition {
+	return vi.Status.Conditions
+}
+
 func (vi *AthenzClusterIssuer) GetIssuerTypeIdentifier() string {
 	return "athenzclusterissuers.cert-manager.athenz.io"
 }
