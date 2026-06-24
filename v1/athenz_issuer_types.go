@@ -49,6 +49,10 @@ func (vi *AthenzIssuer) GetStatus() *v1alpha1.IssuerStatus {
 	return &vi.Status
 }
 
+func (vi *AthenzIssuer) GetConditions() []metav1.Condition {
+	return vi.Status.Conditions
+}
+
 var _ v1alpha1.Issuer = &AthenzIssuer{}
 
 // +kubebuilder:object:root=true

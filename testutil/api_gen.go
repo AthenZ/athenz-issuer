@@ -81,8 +81,8 @@ func SetAthenzIssuerStatusCondition(
 			si.Status.Conditions,
 			&si.Status.Conditions,
 			si.Generation,
-			conditionType,
-			status,
+			string(conditionType),
+			metav1.ConditionStatus(status),
 			reason,
 			message,
 		)
@@ -139,8 +139,8 @@ func SetAthenzClusterIssuerStatusCondition(
 			si.Status.Conditions,
 			&si.Status.Conditions,
 			si.Generation,
-			conditionType,
-			status,
+			string(conditionType),
+			metav1.ConditionStatus(status),
 			reason,
 			message,
 		)
