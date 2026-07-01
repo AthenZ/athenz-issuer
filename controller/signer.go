@@ -57,6 +57,7 @@ import (
 // +kubebuilder:rbac:groups=cert-manager.athenz.io,resources=athenzissuers/status;athenzclusterissuers/status,verbs=patch
 
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts;serviceaccounts/token,verbs=create;get
 
@@ -127,9 +128,9 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 		return signer.PEMBundle{}, err
 	}
 	clientCRTTemplate, err := details.CertificateTemplate()
-		if err != nil {
-			return signer.PEMBundle{}, err
-		}
+	if err != nil {
+		return signer.PEMBundle{}, err
+	}
 	csrBytes := details.CSR
 
 	// Get the service account name from cr
