@@ -4,8 +4,8 @@ go 1.26.2
 
 require (
 	github.com/AthenZ/athenz v1.12.43
-	github.com/cert-manager/cert-manager v1.20.2
-	github.com/cert-manager/issuer-lib v0.10.0
+	github.com/cert-manager/cert-manager v1.20.3
+	github.com/cert-manager/issuer-lib v0.11.0
 	github.com/go-logr/logr v1.4.3
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.28.0
