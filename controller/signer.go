@@ -123,6 +123,21 @@ func (s *Signer) Check(ctx context.Context, issuerObject v1alpha1.Issuer) error 
 }
 
 func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, issuerObject v1alpha1.Issuer) (signer.PEMBundle, error) {
+	log := ctrl.LoggerFrom(ctx)
+	signStart := time.Now()
+	crCreation := cr.GetCreationTimestamp().Time
+	// MaxRetryDuration is hardcoded to 1 minute in SetupWithManager.
+	// Once this deadline passes issuer-lib permanently marks the CR Failed.
+	retryDeadline := crCreation.Add(1 * time.Minute)
+
+	log.Info("Sign invoked",
+		"cr_name", cr.GetName(),
+		"cr_namespace", cr.GetNamespace(),
+		"cr_created_at", crCreation.UTC().Format(time.RFC3339Nano),
+		"retry_deadline", retryDeadline.UTC().Format(time.RFC3339Nano),
+		"time_remaining_until_deadline", retryDeadline.Sub(signStart).Round(time.Millisecond).String(),
+	)
+
 	details, err := cr.GetCertificateDetails()
 	if err != nil {
 		return signer.PEMBundle{}, err
@@ -136,18 +151,37 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 	// Get the service account name from cr
 	spiffeURI, err := issuerutil.ExtractSpiffeURIFromAnnotations(cr.GetAnnotations())
 	if err != nil {
-		fmt.Printf("Unable to extract spiffe uri from annotations, err: %v\n", err)
+		log.Error(err, "Unable to extract spiffe URI from annotations, falling back to CSR")
 		spiffeURI, err = issuerutil.ExtractSpiffeURIFromCSR(csrBytes)
 	}
 
-	fmt.Printf("spiffeURI=%s\n", spiffeURI)
+	log.Info("Extracted spiffe URI", "spiffe_uri", spiffeURI)
 	spiffeNS, spiffeSA, err := issuerutil.ExtractNamespaceAndServiceAccountFromSpiffeURI(spiffeURI)
 
-	// use the token in zts api call
+	// Request a service account token from the Kubernetes API server.
+	tokenStart := time.Now()
+	log.Info("Requesting service account token",
+		"cr_name", cr.GetName(),
+		"namespace", spiffeNS,
+		"service_account", spiffeSA,
+		"elapsed_since_sign_start", time.Since(signStart).Round(time.Millisecond).String(),
+		"time_remaining_until_deadline", retryDeadline.Sub(tokenStart).Round(time.Millisecond).String(),
+	)
 	saTok, err := getServiceAccountTokenFromAPIServer(spiffeNS, ctx, spiffeSA, s)
+	tokenElapsed := time.Since(tokenStart)
 	if err != nil {
+		log.Error(err, "Failed to get service account token",
+			"cr_name", cr.GetName(),
+			"token_elapsed", tokenElapsed.Round(time.Millisecond).String(),
+			"time_remaining_until_deadline", retryDeadline.Sub(time.Now()).Round(time.Millisecond).String(),
+		)
 		return signer.PEMBundle{}, err
 	}
+	log.Info("Service account token obtained",
+		"cr_name", cr.GetName(),
+		"token_elapsed", tokenElapsed.Round(time.Millisecond).String(),
+		"time_remaining_until_deadline", retryDeadline.Sub(time.Now()).Round(time.Millisecond).String(),
+	)
 
 	athenzDomain, athenzService := issuerutil.ExtractDomainServiceFromServiceAccount(spiffeSA)
 	athenzProvider := fmt.Sprintf("%s.%s-%s", s.providerPrefix, s.cloud, s.region)
@@ -155,8 +189,6 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 	data, err := json.Marshal(&K8SAttestationData{
 		IdentityToken: string(saTok),
 	})
-
-	fmt.Printf("athenzDomain=%s athenzService=%s athenzProvider=%s\n", athenzDomain, athenzService, athenzProvider)
 
 	if s.cloud == "local" {
 		// generate random ca private key
@@ -190,6 +222,16 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 			ChainPEM: clientCrt,
 		}, nil
 	} else {
+		ztsStart := time.Now()
+		log.Info("Calling ZTS PostInstanceRegisterInformation",
+			"cr_name", cr.GetName(),
+			"athenz_domain", athenzDomain,
+			"athenz_service", athenzService,
+			"athenz_provider", athenzProvider,
+			"elapsed_since_sign_start", time.Since(signStart).Round(time.Millisecond).String(),
+			"time_remaining_until_deadline", retryDeadline.Sub(ztsStart).Round(time.Millisecond).String(),
+		)
+
 		identity, _, err := s.ztsClient.PostInstanceRegisterInformation(&zts.InstanceRegisterInformation{
 			Domain:          zts.DomainName(athenzDomain),
 			Service:         zts.SimpleName(athenzService),
@@ -199,17 +241,35 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 			Cloud:           zts.SimpleName(s.cloud),
 			Namespace:       zts.SimpleName(spiffeNS),
 		})
+		ztsElapsed := time.Since(ztsStart)
+
 		if err != nil {
-			fmt.Printf("Unable to do PostInstanceRegisterInformation, err: %v\n", err)
+			log.Error(err, "ZTS PostInstanceRegisterInformation failed",
+				"cr_name", cr.GetName(),
+				"zts_elapsed", ztsElapsed.Round(time.Millisecond).String(),
+				"total_sign_elapsed", time.Since(signStart).Round(time.Millisecond).String(),
+				"time_remaining_until_deadline", retryDeadline.Sub(time.Now()).Round(time.Millisecond).String(),
+			)
 			return signer.PEMBundle{}, err
 		}
+
+		log.Info("ZTS PostInstanceRegisterInformation succeeded",
+			"cr_name", cr.GetName(),
+			"athenz_domain", athenzDomain,
+			"athenz_service", athenzService,
+			"zts_elapsed", ztsElapsed.Round(time.Millisecond).String(),
+			"total_sign_elapsed", time.Since(signStart).Round(time.Millisecond).String(),
+		)
 
 		if identity != nil {
 			return signer.PEMBundle{
 				ChainPEM: []byte(identity.X509Certificate),
 			}, nil
 		} else {
-			fmt.Println("identity is nil")
+			log.Error(nil, "ZTS returned nil identity",
+				"cr_name", cr.GetName(),
+				"zts_elapsed", ztsElapsed.Round(time.Millisecond).String(),
+			)
 			return signer.PEMBundle{}, nil
 		}
 	}
