@@ -32,6 +32,7 @@ import (
 	"time"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -153,10 +154,20 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 	if err != nil {
 		log.Error(err, "Unable to extract spiffe URI from annotations, falling back to CSR")
 		spiffeURI, err = issuerutil.ExtractSpiffeURIFromCSR(csrBytes)
+		if err != nil {
+			log.Error(err, "Unable to extract spiffe URI from CSR",
+				"cr_name", cr.GetName(), "cr_namespace", cr.GetNamespace())
+			return signer.PEMBundle{}, fmt.Errorf("unable to extract SPIFFE URI from annotations or CSR: %w", err)
+		}
 	}
 
 	log.Info("Extracted spiffe URI", "spiffe_uri", spiffeURI)
 	spiffeNS, spiffeSA, err := issuerutil.ExtractNamespaceAndServiceAccountFromSpiffeURI(spiffeURI)
+	if err != nil {
+		log.Error(err, "Unable to extract namespace and service account from spiffe URI",
+			"cr_name", cr.GetName(), "spiffe_uri", spiffeURI)
+		return signer.PEMBundle{}, fmt.Errorf("%w: %q", err, spiffeURI)
+	}
 
 	// Request a service account token from the Kubernetes API server.
 	tokenStart := time.Now()
@@ -167,7 +178,7 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 		"elapsed_since_sign_start", time.Since(signStart).Round(time.Millisecond).String(),
 		"time_remaining_until_deadline", retryDeadline.Sub(tokenStart).Round(time.Millisecond).String(),
 	)
-	saTok, err := getServiceAccountTokenFromAPIServer(spiffeNS, ctx, spiffeSA, s)
+	saTok, sa, err := getServiceAccountTokenFromAPIServer(spiffeNS, ctx, spiffeSA, s)
 	tokenElapsed := time.Since(tokenStart)
 	if err != nil {
 		log.Error(err, "Failed to get service account token",
@@ -183,7 +194,14 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 		"time_remaining_until_deadline", retryDeadline.Sub(time.Now()).Round(time.Millisecond).String(),
 	)
 
-	athenzDomain, athenzService := issuerutil.ExtractDomainServiceFromServiceAccount(spiffeSA)
+	athenzDomain, athenzService, err := issuerutil.ResolveDomainService(spiffeSA)
+	if err != nil {
+		log.Error(err, "Unable to resolve Athenz domain and service from service account",
+			"cr_name", cr.GetName(), "cr_namespace", cr.GetNamespace(),
+			"namespace", spiffeNS, "service_account", spiffeSA, "spiffe_uri", spiffeURI)
+		return signer.PEMBundle{}, fmt.Errorf("unable to resolve Athenz domain and service for CertificateRequest %s/%s: %w",
+			cr.GetNamespace(), cr.GetName(), err)
+	}
 	athenzProvider := fmt.Sprintf("%s.%s-%s", s.providerPrefix, s.cloud, s.region)
 
 	data, err := json.Marshal(&K8SAttestationData{
@@ -233,13 +251,14 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 		)
 
 		identity, _, err := s.ztsClient.PostInstanceRegisterInformation(&zts.InstanceRegisterInformation{
-			Domain:          zts.DomainName(athenzDomain),
-			Service:         zts.SimpleName(athenzService),
-			Provider:        zts.ServiceName(athenzProvider),
-			AttestationData: string(data),
-			Csr:             string(csrBytes),
-			Cloud:           zts.SimpleName(s.cloud),
-			Namespace:       zts.SimpleName(spiffeNS),
+			Domain:             zts.DomainName(athenzDomain),
+			Service:            zts.SimpleName(athenzService),
+			Provider:           zts.ServiceName(athenzProvider),
+			AttestationData:    string(data),
+			Csr:                string(csrBytes),
+			Cloud:              zts.SimpleName(s.cloud),
+			Namespace:          zts.SimpleName(spiffeNS),
+			X509CertInstanceId: zts.PathElement(sa.UID),
 		})
 		ztsElapsed := time.Since(ztsStart)
 
@@ -275,15 +294,15 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 	}
 }
 
-func getServiceAccountTokenFromAPIServer(namespaceName string, ctx context.Context, spiffeSA string, signerObj *Signer) (string, error) {
+func getServiceAccountTokenFromAPIServer(namespaceName string, ctx context.Context, spiffeSA string, signerObj *Signer) (string, *corev1.ServiceAccount, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		return "", fmt.Errorf("failed to get in cluster config: %w", err)
+		return "", nil, fmt.Errorf("failed to get in cluster config: %w", err)
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return "", fmt.Errorf("failed to get clientset: %w", err)
+		return "", nil, fmt.Errorf("failed to get clientset: %w", err)
 	}
 
 	sa, err := clientset.CoreV1().ServiceAccounts(namespaceName).Get(ctx, spiffeSA, metav1.GetOptions{})
@@ -293,7 +312,7 @@ func getServiceAccountTokenFromAPIServer(namespaceName string, ctx context.Conte
 		sa, err = clientset.CoreV1().ServiceAccounts(namespaceName).Get(ctx, fallbackSA, metav1.GetOptions{})
 		if err != nil {
 			// if we still can't find the service account, return an error
-			return "", fmt.Errorf("failed to get service account %s or %s in namespace %s: %w", spiffeSA, fallbackSA, namespaceName, err)
+			return "", nil, fmt.Errorf("failed to get service account %s or %s in namespace %s: %w", spiffeSA, fallbackSA, namespaceName, err)
 		}
 	}
 
@@ -304,8 +323,8 @@ func getServiceAccountTokenFromAPIServer(namespaceName string, ctx context.Conte
 	}
 	tokenReq, err := clientset.CoreV1().ServiceAccounts(namespaceName).CreateToken(ctx, sa.Name, tr, metav1.CreateOptions{})
 	if err != nil {
-		return "", fmt.Errorf("failed to create token request: %w", err)
+		return "", nil, fmt.Errorf("failed to create token request: %w", err)
 	}
 
-	return tokenReq.Status.Token, nil
+	return tokenReq.Status.Token, sa, nil
 }

@@ -28,6 +28,10 @@ spec:
     spec:
       serviceAccountName: {{ template "athenz-issuer.serviceAccountName" . }}
       terminationGracePeriodSeconds: 10
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         seccompProfile:

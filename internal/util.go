@@ -68,6 +68,22 @@ func ExtractDomainServiceFromServiceAccount(saName string) (string, string) {
 	return domain, service
 }
 
+// ResolveDomainService derives the Athenz domain and service for a service account name
+// by splitting on the last dot (e.g. athenz.prod.api -> domain: athenz.prod, service: api).
+// Dot-free SA names carry no domain and are rejected: every mesh identity, including
+// waypoints and gateways, must use a dotted {domain}.{service} ServiceAccount (see
+// docs/design/istio-ambient-waypoint-setup.md in the athenz repo for the waypoint setup).
+func ResolveDomainService(saName string) (string, string, error) {
+	domain, service := ExtractDomainServiceFromServiceAccount(saName)
+	if domain == "" {
+		return "", "", fmt.Errorf("service account %q has no dots and carries no Athenz domain", saName)
+	}
+	if service == "" {
+		return "", "", fmt.Errorf("service account %q ends in a dot and carries no Athenz service", saName)
+	}
+	return domain, service, nil
+}
+
 func ExtractSpiffeURIFromCSR(csrBytes []byte) (string, error) {
 	// Decode the PEM encoded CSR
 	block, rest := pem.Decode(csrBytes)

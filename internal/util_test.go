@@ -144,6 +144,76 @@ func TestExtractSpiffeURIFromAnnotations(t *testing.T) {
 	}
 }
 
+func TestResolveDomainService(t *testing.T) {
+	testCases := []struct {
+		name            string
+		saName          string
+		expectedDomain  string
+		expectedService string
+		expectError     bool
+	}{
+		{
+			name:            "dotted SA name encodes domain directly",
+			saName:          "athenz.k8s.nonprod.istiod",
+			expectedDomain:  "athenz.k8s.nonprod",
+			expectedService: "istiod",
+			expectError:     false,
+		},
+		{
+			name:            "dotted waypoint SA name",
+			saName:          "msd.stage.waypoint",
+			expectedDomain:  "msd.stage",
+			expectedService: "waypoint",
+			expectError:     false,
+		},
+		{
+			name:            "dot-free SA name carries no domain and errors",
+			saName:          "waypoint",
+			expectedDomain:  "",
+			expectedService: "",
+			expectError:     true,
+		},
+		{
+			name:            "trailing dot carries no service and errors",
+			saName:          "athenz.prod.",
+			expectedDomain:  "",
+			expectedService: "",
+			expectError:     true,
+		},
+		{
+			name:            "leading dot carries no domain and errors",
+			saName:          ".api",
+			expectedDomain:  "",
+			expectedService: "",
+			expectError:     true,
+		},
+		{
+			name:            "lone dot errors",
+			saName:          ".",
+			expectedDomain:  "",
+			expectedService: "",
+			expectError:     true,
+		},
+	}
+
+	for _, tc := range testCases {
+		domain, service, err := ResolveDomainService(tc.saName)
+
+		if tc.expectError && err == nil {
+			t.Errorf("%s: expected an error, got none", tc.name)
+		}
+		if !tc.expectError && err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.name, err)
+		}
+		if domain != tc.expectedDomain {
+			t.Errorf("%s: expected domain '%s', got '%s'", tc.name, tc.expectedDomain, domain)
+		}
+		if service != tc.expectedService {
+			t.Errorf("%s: expected service '%s', got '%s'", tc.name, tc.expectedService, service)
+		}
+	}
+}
+
 func TestExtractSpiffeURIFromCSR(t *testing.T) {
 	testCases := []struct {
 		input              []byte
