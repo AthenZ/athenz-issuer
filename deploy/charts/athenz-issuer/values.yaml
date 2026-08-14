@@ -68,6 +68,10 @@ resources:
 
 replicaCount: 1
 
+# Optional /etc/hosts entries to inject into the controller pod (Pod.spec.hostAliases).
+# +docs:property
+# hostAliases: []
+
 crds:
   enabled: true
   keep: true

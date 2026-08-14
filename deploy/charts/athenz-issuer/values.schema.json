@@ -15,6 +15,9 @@
         "global": {
           "$ref": "#/$defs/helm-values.global"
         },
+        "hostAliases": {
+          "$ref": "#/$defs/helm-values.hostAliases"
+        },
         "image": {
           "$ref": "#/$defs/helm-values.image"
         },
@@ -110,6 +113,11 @@
     "helm-values.image.tag": {
       "description": "Override the image tag to deploy by setting this variable. If no value is set, the chart's appVersion is used.",
       "type": "string"
+    },
+    "helm-values.hostAliases": {
+      "description": "Optional /etc/hosts entries to inject into the controller pod (Pod.spec.hostAliases).",
+      "items": {},
+      "type": "array"
     },
     "helm-values.imagePullSecrets": {
       "default": [],
