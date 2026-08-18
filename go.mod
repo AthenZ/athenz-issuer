@@ -7,7 +7,7 @@ require (
 	github.com/cert-manager/cert-manager v1.21.1
 	github.com/cert-manager/issuer-lib v0.12.0
 	github.com/go-logr/logr v1.4.4
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.0
 	go.uber.org/zap v1.28.0
 	k8s.io/api v0.36.3
 	k8s.io/apiextensions-apiserver v0.36.3
