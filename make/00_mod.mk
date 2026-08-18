@@ -49,3 +49,8 @@ $(YQ) \
 	( .image.tag = "$(oci_manager_image_tag)" )' \
 	$1 --inplace
 endef
+
+# Boilerplate header applied to generated Go files (controller-gen deepcopy).
+# Kept here rather than edited into make/_shared/boilerplate/, which is
+# klone-managed and reverted to upstream by "klone sync" / "make generate".
+go_header_file := make/boilerplate.go.txt
