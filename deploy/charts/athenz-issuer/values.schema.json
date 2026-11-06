@@ -24,6 +24,15 @@
         "imagePullSecrets": {
           "$ref": "#/$defs/helm-values.imagePullSecrets"
         },
+        "kubeApiBurst": {
+          "$ref": "#/$defs/helm-values.kubeApiBurst"
+        },
+        "kubeApiQps": {
+          "$ref": "#/$defs/helm-values.kubeApiQps"
+        },
+        "maxConcurrentReconciles": {
+          "$ref": "#/$defs/helm-values.maxConcurrentReconciles"
+        },
         "nameOverride": {
           "$ref": "#/$defs/helm-values.nameOverride"
         },
@@ -70,6 +79,11 @@
     "helm-values.global": {
       "description": "Global values shared across all (sub)charts"
     },
+    "helm-values.hostAliases": {
+      "description": "Optional /etc/hosts entries to inject into the controller pod (Pod.spec.hostAliases).",
+      "items": {},
+      "type": "array"
+    },
     "helm-values.image": {
       "additionalProperties": false,
       "properties": {
@@ -114,16 +128,23 @@
       "description": "Override the image tag to deploy by setting this variable. If no value is set, the chart's appVersion is used.",
       "type": "string"
     },
-    "helm-values.hostAliases": {
-      "description": "Optional /etc/hosts entries to inject into the controller pod (Pod.spec.hostAliases).",
-      "items": {},
-      "type": "array"
-    },
     "helm-values.imagePullSecrets": {
       "default": [],
       "description": "Optional secrets used for pulling the athenz-issuer container image\nFor example:\nimagePullSecrets:\n  - name: \"image-pull-secret\"",
       "items": {},
       "type": "array"
+    },
+    "helm-values.kubeApiBurst": {
+      "description": "Client-side burst limit for Kubernetes API requests (--kube-api-burst). Must be an integer. Only used when kubeApiQps is positive; if unset or not positive it defaults to max(10, 2*kubeApiQps).",
+      "type": "number"
+    },
+    "helm-values.kubeApiQps": {
+      "description": "Client-side QPS limit for Kubernetes API requests (--kube-api-qps). If unset, zero or negative, client-side rate limiting is disabled and API Priority and Fairness applies.",
+      "type": "number"
+    },
+    "helm-values.maxConcurrentReconciles": {
+      "description": "Maximum number of CertificateRequests reconciled in parallel (--max-concurrent-reconciles). Must be an integer >= 1. Issuers are always reconciled by one worker.\nIf unset, the controller default of 1 is used.",
+      "type": "number"
     },
     "helm-values.nameOverride": {
       "description": "Override the name"

@@ -31,6 +31,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	ctrlzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -57,6 +58,10 @@ func main() {
 	var maxRetryDuration time.Duration
 	var clusterResourceNamespace string
 
+	var maxConcurrentReconciles int
+	var kubeAPIQPS float64
+	var kubeAPIBurst int
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", true,
@@ -65,6 +70,10 @@ func main() {
 
 	flag.DurationVar(&maxRetryDuration, "max-retry-duration", 2*time.Minute, "The max amount of time after certificate request creation that we will retry when an error occurs.")
 	flag.StringVar(&clusterResourceNamespace, "cluster-resource-namespace", "", "The namespace for secrets in which cluster-scoped resources are found.")
+
+	flag.IntVar(&maxConcurrentReconciles, "max-concurrent-reconciles", 1, "The maximum number of CertificateRequests and CertificateSigningRequests reconciled in parallel. Issuer reconciliation always uses one worker.")
+	flag.Float64Var(&kubeAPIQPS, "kube-api-qps", -1, "The client-side QPS limit for requests to the Kubernetes API server. Zero or a negative value disables client-side rate limiting.")
+	flag.IntVar(&kubeAPIBurst, "kube-api-burst", 0, "The client-side burst limit for requests to the Kubernetes API server. Only used when --kube-api-qps is positive; if unset or not positive it defaults to max(10, 2*QPS).")
 
 	flag.Parse()
 
@@ -112,6 +121,11 @@ func main() {
 
 	setupLog := ctrl.Log.WithName("setup")
 
+	if maxRetryDuration <= 0 {
+		setupLog.Error(fmt.Errorf("got %s", maxRetryDuration), "--max-retry-duration must be positive")
+		os.Exit(1)
+	}
+
 	err := getInClusterNamespace(&clusterResourceNamespace)
 	if err != nil {
 		if errors.Is(err, errNotInCluster) {
@@ -134,6 +148,10 @@ func main() {
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Port: 9443,
 		}),
+		// issuer-lib v0.12 passes CombinedController.ControllerOptions only to the issuer controllers; request controllers use this.
+		Controller: config.Controller{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "f8s4b32e.cert-manager.athenz.io",
@@ -153,13 +171,26 @@ func main() {
 	ctx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
 	defer cancel()
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), options)
+	restConfig := ctrl.GetConfigOrDie()
+	if kubeAPIQPS > 0 {
+		restConfig.QPS = float32(kubeAPIQPS)
+		restConfig.Burst = kubeAPIBurst
+		if restConfig.Burst <= 0 {
+			// client-go rejects a positive QPS with a zero burst.
+			restConfig.Burst = max(10, int(2*kubeAPIQPS))
+		}
+	} else {
+		// 0 would make client-go fall back to its 5 QPS default.
+		restConfig.QPS = -1
+	}
+
+	mgr, err := ctrl.NewManager(restConfig, options)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
-	if err = (&controller.Signer{}).SetupWithManager(ctx, mgr); err != nil {
+	if err = (&controller.Signer{MaxRetryDuration: maxRetryDuration}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller")
 		os.Exit(1)
 	}
