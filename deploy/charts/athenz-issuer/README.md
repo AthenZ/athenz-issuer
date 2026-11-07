@@ -132,6 +132,23 @@ Automount API credentials for a Service Account.
 > ```yaml
 > 1
 > ```
+#### **maxConcurrentReconciles** ~ `number`
+
+Maximum number of CertificateRequests reconciled in parallel (--max-concurrent-reconciles). Must be an integer >= 1. Issuers are always reconciled by one worker.  
+If unset, the controller default of 1 is used.
+
+#### **kubeApiQps** ~ `number`
+
+Client-side QPS limit for Kubernetes API requests (--kube-api-qps). If unset, zero or negative, client-side rate limiting is disabled and API Priority and Fairness applies.
+
+#### **kubeApiBurst** ~ `number`
+
+Client-side burst limit for Kubernetes API requests (--kube-api-burst). Must be an integer. Only used when kubeApiQps is positive; if unset or not positive it defaults to max(10, 2*kubeApiQps).
+
+#### **hostAliases** ~ `array`
+
+Optional /etc/hosts entries to inject into the controller pod (Pod.spec.hostAliases).
+
 #### **crds.enabled** ~ `bool`
 > Default value:
 > ```yaml

@@ -38,6 +38,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	issuerutil "github.com/AthenZ/athenz-issuer/internal"
 	athenzissuerapi "github.com/AthenZ/athenz-issuer/v1"
@@ -63,6 +64,8 @@ import (
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts;serviceaccounts/token,verbs=create;get
 
 type Signer struct {
+	MaxRetryDuration time.Duration
+
 	ztsEndpoint    string
 	ztsClient      zts.ZTSClient
 	cloud          string
@@ -88,7 +91,12 @@ func (s Signer) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 		ClusterIssuerTypes: []v1alpha1.Issuer{&athenzissuerapi.AthenzClusterIssuer{}},
 
 		FieldOwner:       "athenzissuer.cert-manager.athenz.io",
-		MaxRetryDuration: 1 * time.Minute,
+		MaxRetryDuration: s.MaxRetryDuration,
+
+		// Check mutates shared Signer state, so issuer reconcilers must stay single-worker.
+		ControllerOptions: controller.Options{
+			MaxConcurrentReconciles: 1,
+		},
 
 		Sign:          s.Sign,
 		Check:         s.Check,
@@ -127,9 +135,8 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 	log := ctrl.LoggerFrom(ctx)
 	signStart := time.Now()
 	crCreation := cr.GetCreationTimestamp().Time
-	// MaxRetryDuration is hardcoded to 1 minute in SetupWithManager.
-	// Once this deadline passes issuer-lib permanently marks the CR Failed.
-	retryDeadline := crCreation.Add(1 * time.Minute)
+	// Once this deadline passes issuer-lib permanently marks the CR Failed on the next error.
+	retryDeadline := crCreation.Add(s.MaxRetryDuration)
 
 	log.Info("Sign invoked",
 		"cr_name", cr.GetName(),
