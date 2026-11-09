@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -35,9 +36,13 @@ import (
 	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/cert-manager/issuer-lib/api/v1alpha1"
 	"github.com/cert-manager/issuer-lib/controllers/signer"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	athenzissuerapi "github.com/AthenZ/athenz-issuer/v1"
 	"github.com/AthenZ/athenz/clients/go/zts"
@@ -94,15 +99,41 @@ func (f *fakeZTS) recorded() []ztsRequest {
 	return append([]ztsRequest(nil), f.requests...)
 }
 
-// fakeSAToken encodes the audience into the token so tests can see which issuer's endpoint it was minted for.
-func fakeSAToken(_ context.Context, namespace, serviceAccount, audience string) (string, *corev1.ServiceAccount, error) {
-	return "token-aud=" + audience, &corev1.ServiceAccount{
+func testSA(namespace, name string) *corev1.ServiceAccount {
+	return &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceAccount,
+			Name:      name,
 			Namespace: namespace,
-			UID:       types.UID("uid-" + namespace + "-" + serviceAccount),
+			UID:       types.UID("uid-" + namespace + "-" + name),
 		},
-	}, nil
+	}
+}
+
+// newFakeKube mints tokens that encode their audience so tests can see which issuer's endpoint a token was requested for.
+func newFakeKube(sas ...*corev1.ServiceAccount) *fake.Clientset {
+	objs := make([]runtime.Object, len(sas))
+	for i, sa := range sas {
+		objs[i] = sa
+	}
+	kube := fake.NewClientset(objs...)
+	kube.PrependReactor("create", "serviceaccounts", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		create, ok := action.(k8stesting.CreateAction)
+		if !ok || action.GetSubresource() != "token" {
+			return false, nil, nil
+		}
+		tr := create.GetObject().(*authenticationv1.TokenRequest).DeepCopy()
+		tr.Status.Token = "token-aud=" + strings.Join(tr.Spec.Audiences, ",")
+		return true, tr, nil
+	})
+	return kube
+}
+
+func newFakeKubeFor(cases []signCase) *fake.Clientset {
+	sas := make([]*corev1.ServiceAccount, len(cases))
+	for i, c := range cases {
+		sas[i] = testSA(c.namespace, c.sa)
+	}
+	return newFakeKube(sas...)
 }
 
 func newTestCR(t *testing.T, namespace, serviceAccount string) signer.CertificateRequestObject {
@@ -208,7 +239,7 @@ func checkZTSRequest(t *testing.T, c signCase, r ztsRequest) {
 
 func TestSignUsesReferencedIssuer(t *testing.T) {
 	cases := newTwoIssuerCases(t)
-	s := &Signer{MaxRetryDuration: time.Minute, saToken: fakeSAToken}
+	s := &Signer{MaxRetryDuration: time.Minute, kubeClient: newFakeKubeFor(cases)}
 	ctx := context.Background()
 
 	// Check every issuer first so the last one checked differs from the first one signed.
@@ -234,7 +265,7 @@ func TestSignUsesReferencedIssuer(t *testing.T) {
 
 func TestSignLocalCloudSkipsZTS(t *testing.T) {
 	fake := newFakeZTS(t, "unused")
-	s := &Signer{MaxRetryDuration: time.Minute, saToken: fakeSAToken}
+	s := &Signer{MaxRetryDuration: time.Minute, kubeClient: newFakeKube(testSA("ns", "dom.svc"))}
 	issuer := &athenzissuerapi.AthenzIssuer{
 		ObjectMeta: metav1.ObjectMeta{Name: "local", Namespace: "ns"},
 		Spec:       athenzissuerapi.AthenzCertificateSource{ZTSEndpoint: fake.endpoint, Cloud: "local", Region: "r", ProviderPrefix: "p"},
@@ -262,7 +293,7 @@ func TestCheckRejectsForeignIssuer(t *testing.T) {
 // Run with -race: Check and Sign share one Signer across all reconcilers.
 func TestConcurrentCheckAndSign(t *testing.T) {
 	cases := newTwoIssuerCases(t)
-	s := &Signer{MaxRetryDuration: time.Minute, saToken: fakeSAToken}
+	s := &Signer{MaxRetryDuration: time.Minute, kubeClient: newFakeKubeFor(cases)}
 	ctx := context.Background()
 
 	crs := make([]signer.CertificateRequestObject, len(cases))
@@ -304,5 +335,99 @@ func TestConcurrentCheckAndSign(t *testing.T) {
 	}
 	if want := workers * iterations; total != want {
 		t.Errorf("ZTS got %d requests in total, want %d", total, want)
+	}
+}
+
+type kubeCall struct{ verb, subresource, name string }
+
+func TestSignServiceAccountLookupUsesInjectedClient(t *testing.T) {
+	// rest.InClusterConfig fails without these, so a successful Sign cannot have used it.
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+	t.Setenv("KUBERNETES_SERVICE_PORT", "")
+
+	tests := []struct {
+		name       string
+		sas        []*corev1.ServiceAccount
+		wantCalls  []kubeCall
+		wantInstID string
+		wantErr    string
+	}{
+		{
+			name: "full service account name",
+			sas:  []*corev1.ServiceAccount{testSA("team-a", "dom.a.svc-a"), testSA("team-a", "svc-a")},
+			wantCalls: []kubeCall{
+				{"get", "", "dom.a.svc-a"},
+				{"create", "token", "dom.a.svc-a"},
+			},
+			wantInstID: "uid-team-a-dom.a.svc-a",
+		},
+		{
+			name: "fallback to service name",
+			sas:  []*corev1.ServiceAccount{testSA("team-a", "svc-a")},
+			wantCalls: []kubeCall{
+				{"get", "", "dom.a.svc-a"},
+				{"get", "", "svc-a"},
+				{"create", "token", "svc-a"},
+			},
+			wantInstID: "uid-team-a-svc-a",
+		},
+		{
+			name: "no service account",
+			wantCalls: []kubeCall{
+				{"get", "", "dom.a.svc-a"},
+				{"get", "", "svc-a"},
+			},
+			wantErr: "failed to get service account dom.a.svc-a or svc-a in namespace team-a",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTwoIssuerCases(t)[0]
+			kube := newFakeKube(tt.sas...)
+			s := &Signer{MaxRetryDuration: time.Minute, kubeClient: kube}
+
+			bundle, err := s.Sign(context.Background(), newTestCR(t, c.namespace, c.sa), c.issuer)
+
+			var calls []kubeCall
+			for _, a := range kube.Actions() {
+				if a.GetNamespace() != c.namespace || a.GetResource().Resource != "serviceaccounts" {
+					t.Errorf("unexpected API call %s %s in namespace %q", a.GetVerb(), a.GetResource().Resource, a.GetNamespace())
+					continue
+				}
+				call := kubeCall{verb: a.GetVerb(), subresource: a.GetSubresource()}
+				switch a := a.(type) {
+				case k8stesting.GetAction:
+					call.name = a.GetName()
+				case k8stesting.CreateActionImpl:
+					call.name = a.Name
+					tr := a.GetObject().(*authenticationv1.TokenRequest)
+					if got := strings.Join(tr.Spec.Audiences, ","); got != c.zts.endpoint {
+						t.Errorf("token audiences = %q, want %q", got, c.zts.endpoint)
+					}
+				}
+				calls = append(calls, call)
+			}
+			if fmt.Sprint(calls) != fmt.Sprint(tt.wantCalls) {
+				t.Errorf("API calls = %v, want %v", calls, tt.wantCalls)
+			}
+
+			reqs := c.zts.recorded()
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("Sign error = %v, want it to contain %q", err, tt.wantErr)
+				}
+				if len(reqs) != 0 {
+					t.Errorf("ZTS got %d requests after a failed lookup, want 0", len(reqs))
+				}
+				return
+			}
+			checkSignResult(t, c, bundle, err)
+			if len(reqs) != 1 {
+				t.Fatalf("ZTS got %d requests, want 1", len(reqs))
+			}
+			if got := string(reqs[0].info.X509CertInstanceId); got != tt.wantInstID {
+				t.Errorf("instance id = %q, want %q", got, tt.wantInstID)
+			}
+		})
 	}
 }

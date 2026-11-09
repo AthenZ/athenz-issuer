@@ -35,7 +35,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -66,19 +65,19 @@ import (
 type Signer struct {
 	MaxRetryDuration time.Duration
 
-	// saToken replaces the API server token request in tests; nil uses getServiceAccountTokenFromAPIServer.
-	saToken func(ctx context.Context, namespace, serviceAccount, audience string) (string, *corev1.ServiceAccount, error)
+	kubeClient kubernetes.Interface
 }
 
 type K8SAttestationData struct {
 	IdentityToken string `json:"identityToken,omitempty"` //the service account token obtained from the api server
 }
 
-func (s Signer) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+func (s *Signer) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
 	if err != nil {
-		return fmt.Errorf("failed to create kubernetes clientset for events: %w", err)
+		return fmt.Errorf("failed to create kubernetes clientset: %w", err)
 	}
+	s.kubeClient = clientset
 
 	eventBroadcaster := events.NewEventBroadcasterAdapterWithContext(ctx, clientset)
 	eventBroadcaster.StartRecordingToSink(ctx.Done())
@@ -189,11 +188,7 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 		"elapsed_since_sign_start", time.Since(signStart).Round(time.Millisecond).String(),
 		"time_remaining_until_deadline", retryDeadline.Sub(tokenStart).Round(time.Millisecond).String(),
 	)
-	saToken := s.saToken
-	if saToken == nil {
-		saToken = getServiceAccountTokenFromAPIServer
-	}
-	saTok, sa, err := saToken(ctx, spiffeNS, spiffeSA, spec.ZTSEndpoint)
+	saTok, sa, err := getServiceAccountTokenFromAPIServer(ctx, s.kubeClient, spiffeNS, spiffeSA, spec.ZTSEndpoint)
 	tokenElapsed := time.Since(tokenStart)
 	if err != nil {
 		log.Error(err, "Failed to get service account token",
@@ -309,17 +304,7 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 	}
 }
 
-func getServiceAccountTokenFromAPIServer(ctx context.Context, namespaceName, spiffeSA, audience string) (string, *corev1.ServiceAccount, error) {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to get in cluster config: %w", err)
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to get clientset: %w", err)
-	}
-
+func getServiceAccountTokenFromAPIServer(ctx context.Context, clientset kubernetes.Interface, namespaceName, spiffeSA, audience string) (string, *corev1.ServiceAccount, error) {
 	sa, err := clientset.CoreV1().ServiceAccounts(namespaceName).Get(ctx, spiffeSA, metav1.GetOptions{})
 	if err != nil {
 		// try with a fallback service account name

@@ -139,11 +139,11 @@ If unset, the controller default of 1 is used.
 
 #### **kubeApiQps** ~ `number`
 
-Client-side QPS limit for Kubernetes API requests (--kube-api-qps). If unset, zero or negative, client-side rate limiting is disabled and API Priority and Fairness applies.
+Client-side QPS limit for Kubernetes API requests (--kube-api-qps). Applies to every API client the controller uses, including the ServiceAccount get and TokenRequest made for each signed request. Each client enforces the limit separately. If unset, zero or negative, client-side rate limiting is disabled and API Priority and Fairness applies.
 
 #### **kubeApiBurst** ~ `number`
 
-Client-side burst limit for Kubernetes API requests (--kube-api-burst). Must be an integer. Only used when kubeApiQps is positive; if unset or not positive it defaults to max(10, 2*kubeApiQps).
+Client-side burst limit for Kubernetes API requests (--kube-api-burst), applied to the same clients as kubeApiQps. Must be an integer. Only used when kubeApiQps is positive; if unset or not positive it defaults to max(10, 2*kubeApiQps).
 
 #### **hostAliases** ~ `array`
 
