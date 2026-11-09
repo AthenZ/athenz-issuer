@@ -145,6 +145,11 @@ Client-side QPS limit for Kubernetes API requests (--kube-api-qps). Applies to e
 
 Client-side burst limit for Kubernetes API requests (--kube-api-burst), applied to the same clients as kubeApiQps. Must be an integer. Only used when kubeApiQps is positive; if unset or not positive it defaults to max(10, 2*kubeApiQps).
 
+#### **maxRetryDuration** ~ `string`
+
+How long after a CertificateRequest is created the controller keeps retrying it after an error (--max-retry-duration). Must be a positive Go duration string such as "5m". When it has passed, the next error marks the request Failed.  
+If unset, the controller default of 2m is used.
+
 #### **hostAliases** ~ `array`
 
 Optional /etc/hosts entries to inject into the controller pod (Pod.spec.hostAliases).

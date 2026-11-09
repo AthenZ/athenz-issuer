@@ -85,6 +85,12 @@ replicaCount: 1
 # +docs:property
 # kubeApiBurst: 100
 
+# How long after a CertificateRequest is created the controller keeps retrying it after an error (--max-retry-duration).
+# Must be a positive Go duration string such as "5m". When it has passed, the next error marks the request Failed.
+# If unset, the controller default of 2m is used.
+# +docs:property
+# maxRetryDuration: 5m
+
 # Optional /etc/hosts entries to inject into the controller pod (Pod.spec.hostAliases).
 # +docs:property
 # hostAliases: []
