@@ -43,13 +43,14 @@ spec:
           {{- $mcr := .Values.maxConcurrentReconciles }}
           {{- $qps := .Values.kubeApiQps }}
           {{- $burst := .Values.kubeApiBurst }}
+          {{- $mrd := .Values.maxRetryDuration }}
           {{- if and (not (kindIs "invalid" $mcr)) (or (lt (float64 $mcr) 1.0) (ne (float64 $mcr) (float64 (int $mcr)))) }}
           {{- fail "maxConcurrentReconciles must be an integer >= 1" }}
           {{- end }}
           {{- if and (not (kindIs "invalid" $burst)) (ne (float64 $burst) (float64 (int $burst))) }}
           {{- fail "kubeApiBurst must be an integer" }}
           {{- end }}
-          {{- if not (and (kindIs "invalid" $mcr) (kindIs "invalid" $qps) (kindIs "invalid" $burst)) }}
+          {{- if not (and (kindIs "invalid" $mcr) (kindIs "invalid" $qps) (kindIs "invalid" $burst) (kindIs "invalid" $mrd)) }}
           args:
             {{- if not (kindIs "invalid" $mcr) }}
             - --max-concurrent-reconciles={{ $mcr | int }}
@@ -59,6 +60,9 @@ spec:
             {{- end }}
             {{- if not (kindIs "invalid" $burst) }}
             - --kube-api-burst={{ $burst | int }}
+            {{- end }}
+            {{- if not (kindIs "invalid" $mrd) }}
+            - {{ printf "--max-retry-duration=%s" $mrd | quote }}
             {{- end }}
           {{- end }}
           securityContext:

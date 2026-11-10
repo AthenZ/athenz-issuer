@@ -22,7 +22,7 @@ test-unit: | $(cert_manager_crds) $(NEEDS_GO) $(NEEDS_GOTESTSUM) $(NEEDS_ETCD) $
 		--junitfile=$(ARTIFACTS)/junit-go-e2e.xml \
 		-- \
 		-coverprofile=$(ARTIFACTS)/filtered.cov \
-		./cmd/... ./internal/... \
+		./cmd/... ./controller/... ./internal/... \
 		-- \
 		-ldflags $(go_manager_ldflags)
 	

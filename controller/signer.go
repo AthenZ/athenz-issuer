@@ -35,7 +35,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -66,22 +65,19 @@ import (
 type Signer struct {
 	MaxRetryDuration time.Duration
 
-	ztsEndpoint    string
-	ztsClient      zts.ZTSClient
-	cloud          string
-	region         string
-	providerPrefix string
+	kubeClient kubernetes.Interface
 }
 
 type K8SAttestationData struct {
 	IdentityToken string `json:"identityToken,omitempty"` //the service account token obtained from the api server
 }
 
-func (s Signer) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+func (s *Signer) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
 	if err != nil {
-		return fmt.Errorf("failed to create kubernetes clientset for events: %w", err)
+		return fmt.Errorf("failed to create kubernetes clientset: %w", err)
 	}
+	s.kubeClient = clientset
 
 	eventBroadcaster := events.NewEventBroadcasterAdapterWithContext(ctx, clientset)
 	eventBroadcaster.StartRecordingToSink(ctx.Done())
@@ -93,7 +89,7 @@ func (s Signer) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 		FieldOwner:       "athenzissuer.cert-manager.athenz.io",
 		MaxRetryDuration: s.MaxRetryDuration,
 
-		// Check mutates shared Signer state, so issuer reconcilers must stay single-worker.
+		// --max-concurrent-reconciles scales only the request reconcilers.
 		ControllerOptions: controller.Options{
 			MaxConcurrentReconciles: 1,
 		},
@@ -105,30 +101,32 @@ func (s Signer) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 }
 
 func (s *Signer) Check(ctx context.Context, issuerObject v1alpha1.Issuer) error {
+	_, err := issuerSpec(issuerObject)
+	return err
+}
+
+func issuerSpec(issuerObject v1alpha1.Issuer) (athenzissuerapi.AthenzCertificateSource, error) {
 	switch t := issuerObject.(type) {
 	case *athenzissuerapi.AthenzIssuer:
-		s.ztsEndpoint = t.Spec.ZTSEndpoint
-		s.region = t.Spec.Region
-		s.cloud = t.Spec.Cloud
-		s.providerPrefix = t.Spec.ProviderPrefix
+		return t.Spec, nil
 	case *athenzissuerapi.AthenzClusterIssuer:
-		s.ztsEndpoint = t.Spec.ZTSEndpoint
-		s.region = t.Spec.Region
-		s.cloud = t.Spec.Cloud
-		s.providerPrefix = t.Spec.ProviderPrefix
+		return t.Spec, nil
 	default:
-		return fmt.Errorf("not an issuer type: %t", t)
+		return athenzissuerapi.AthenzCertificateSource{}, fmt.Errorf("not an issuer type: %t", t)
 	}
-	// create zts client
+}
+
+// Built per call: ZTSClient copies share CredsHeaders, which AddCredentials writes without a lock.
+func newZTSClient(endpoint string) zts.ZTSClient {
 	tr := &http.Transport{
 		TLSClientConfig:   &tls.Config{},
 		Proxy:             http.ProxyFromEnvironment,
 		DisableKeepAlives: true,
 	}
 
-	s.ztsClient = zts.NewClient(s.ztsEndpoint, tr)
-	s.ztsClient.AddCredentials("User-Agent", "athenz-issuer")
-	return nil
+	client := zts.NewClient(endpoint, tr)
+	client.AddCredentials("User-Agent", "athenz-issuer")
+	return client
 }
 
 func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, issuerObject v1alpha1.Issuer) (signer.PEMBundle, error) {
@@ -145,6 +143,11 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 		"retry_deadline", retryDeadline.UTC().Format(time.RFC3339Nano),
 		"time_remaining_until_deadline", retryDeadline.Sub(signStart).Round(time.Millisecond).String(),
 	)
+
+	spec, err := issuerSpec(issuerObject)
+	if err != nil {
+		return signer.PEMBundle{}, err
+	}
 
 	details, err := cr.GetCertificateDetails()
 	if err != nil {
@@ -185,7 +188,7 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 		"elapsed_since_sign_start", time.Since(signStart).Round(time.Millisecond).String(),
 		"time_remaining_until_deadline", retryDeadline.Sub(tokenStart).Round(time.Millisecond).String(),
 	)
-	saTok, sa, err := getServiceAccountTokenFromAPIServer(spiffeNS, ctx, spiffeSA, s)
+	saTok, sa, err := getServiceAccountTokenFromAPIServer(ctx, s.kubeClient, spiffeNS, spiffeSA, spec.ZTSEndpoint)
 	tokenElapsed := time.Since(tokenStart)
 	if err != nil {
 		log.Error(err, "Failed to get service account token",
@@ -209,13 +212,13 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 		return signer.PEMBundle{}, fmt.Errorf("unable to resolve Athenz domain and service for CertificateRequest %s/%s: %w",
 			cr.GetNamespace(), cr.GetName(), err)
 	}
-	athenzProvider := fmt.Sprintf("%s.%s-%s", s.providerPrefix, s.cloud, s.region)
+	athenzProvider := fmt.Sprintf("%s.%s-%s", spec.ProviderPrefix, spec.Cloud, spec.Region)
 
 	data, err := json.Marshal(&K8SAttestationData{
 		IdentityToken: string(saTok),
 	})
 
-	if s.cloud == "local" {
+	if spec.Cloud == "local" {
 		// generate random ca private key
 		caPrivateKey, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
 		if err != nil {
@@ -257,13 +260,13 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 			"time_remaining_until_deadline", retryDeadline.Sub(ztsStart).Round(time.Millisecond).String(),
 		)
 
-		identity, _, err := s.ztsClient.PostInstanceRegisterInformation(&zts.InstanceRegisterInformation{
+		identity, _, err := newZTSClient(spec.ZTSEndpoint).PostInstanceRegisterInformation(&zts.InstanceRegisterInformation{
 			Domain:             zts.DomainName(athenzDomain),
 			Service:            zts.SimpleName(athenzService),
 			Provider:           zts.ServiceName(athenzProvider),
 			AttestationData:    string(data),
 			Csr:                string(csrBytes),
-			Cloud:              zts.SimpleName(s.cloud),
+			Cloud:              zts.SimpleName(spec.Cloud),
 			Namespace:          zts.SimpleName(spiffeNS),
 			X509CertInstanceId: zts.PathElement(sa.UID),
 		})
@@ -301,17 +304,7 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 	}
 }
 
-func getServiceAccountTokenFromAPIServer(namespaceName string, ctx context.Context, spiffeSA string, signerObj *Signer) (string, *corev1.ServiceAccount, error) {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to get in cluster config: %w", err)
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to get clientset: %w", err)
-	}
-
+func getServiceAccountTokenFromAPIServer(ctx context.Context, clientset kubernetes.Interface, namespaceName, spiffeSA, audience string) (string, *corev1.ServiceAccount, error) {
 	sa, err := clientset.CoreV1().ServiceAccounts(namespaceName).Get(ctx, spiffeSA, metav1.GetOptions{})
 	if err != nil {
 		// try with a fallback service account name
@@ -325,7 +318,7 @@ func getServiceAccountTokenFromAPIServer(namespaceName string, ctx context.Conte
 
 	tr := &authenticationv1.TokenRequest{
 		Spec: authenticationv1.TokenRequestSpec{
-			Audiences: []string{signerObj.ztsEndpoint},
+			Audiences: []string{audience},
 		},
 	}
 	tokenReq, err := clientset.CoreV1().ServiceAccounts(namespaceName).CreateToken(ctx, sa.Name, tr, metav1.CreateOptions{})

@@ -72,8 +72,8 @@ func main() {
 	flag.StringVar(&clusterResourceNamespace, "cluster-resource-namespace", "", "The namespace for secrets in which cluster-scoped resources are found.")
 
 	flag.IntVar(&maxConcurrentReconciles, "max-concurrent-reconciles", 1, "The maximum number of CertificateRequests and CertificateSigningRequests reconciled in parallel. Issuer reconciliation always uses one worker.")
-	flag.Float64Var(&kubeAPIQPS, "kube-api-qps", -1, "The client-side QPS limit for requests to the Kubernetes API server. Zero or a negative value disables client-side rate limiting.")
-	flag.IntVar(&kubeAPIBurst, "kube-api-burst", 0, "The client-side burst limit for requests to the Kubernetes API server. Only used when --kube-api-qps is positive; if unset or not positive it defaults to max(10, 2*QPS).")
+	flag.Float64Var(&kubeAPIQPS, "kube-api-qps", -1, "The client-side QPS limit for requests to the Kubernetes API server. It applies to every API client the issuer uses, including the ServiceAccount get and TokenRequest made for each signed request. Each client enforces the limit separately. Zero or a negative value disables client-side rate limiting.")
+	flag.IntVar(&kubeAPIBurst, "kube-api-burst", 0, "The client-side burst limit for requests to the Kubernetes API server, applied to the same clients as --kube-api-qps. Only used when --kube-api-qps is positive; if unset or not positive it defaults to max(10, 2*QPS).")
 
 	flag.Parse()
 

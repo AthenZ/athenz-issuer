@@ -33,6 +33,9 @@
         "maxConcurrentReconciles": {
           "$ref": "#/$defs/helm-values.maxConcurrentReconciles"
         },
+        "maxRetryDuration": {
+          "$ref": "#/$defs/helm-values.maxRetryDuration"
+        },
         "nameOverride": {
           "$ref": "#/$defs/helm-values.nameOverride"
         },
@@ -135,16 +138,20 @@
       "type": "array"
     },
     "helm-values.kubeApiBurst": {
-      "description": "Client-side burst limit for Kubernetes API requests (--kube-api-burst). Must be an integer. Only used when kubeApiQps is positive; if unset or not positive it defaults to max(10, 2*kubeApiQps).",
+      "description": "Client-side burst limit for Kubernetes API requests (--kube-api-burst), applied to the same clients as kubeApiQps. Must be an integer. Only used when kubeApiQps is positive; if unset or not positive it defaults to max(10, 2*kubeApiQps).",
       "type": "number"
     },
     "helm-values.kubeApiQps": {
-      "description": "Client-side QPS limit for Kubernetes API requests (--kube-api-qps). If unset, zero or negative, client-side rate limiting is disabled and API Priority and Fairness applies.",
+      "description": "Client-side QPS limit for Kubernetes API requests (--kube-api-qps). Applies to every API client the controller uses, including the ServiceAccount get and TokenRequest made for each signed request. Each client enforces the limit separately. If unset, zero or negative, client-side rate limiting is disabled and API Priority and Fairness applies.",
       "type": "number"
     },
     "helm-values.maxConcurrentReconciles": {
       "description": "Maximum number of CertificateRequests reconciled in parallel (--max-concurrent-reconciles). Must be an integer >= 1. Issuers are always reconciled by one worker.\nIf unset, the controller default of 1 is used.",
       "type": "number"
+    },
+    "helm-values.maxRetryDuration": {
+      "description": "How long after a CertificateRequest is created the controller keeps retrying it after an error (--max-retry-duration). Must be a positive Go duration string such as \"5m\". When it has passed, the next error marks the request Failed.\nIf unset, the controller default of 2m is used.",
+      "type": "string"
     },
     "helm-values.nameOverride": {
       "description": "Override the name"
