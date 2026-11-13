@@ -44,13 +44,18 @@ spec:
           {{- $qps := .Values.kubeApiQps }}
           {{- $burst := .Values.kubeApiBurst }}
           {{- $mrd := .Values.maxRetryDuration }}
+          {{- $ndb := .Values.namespaceDomainBinding }}
+          {{- $nde := .Values.namespaceDomainExceptions }}
+          {{- if and (not (kindIs "invalid" $ndb)) (not (has $ndb (list "off" "warn" "enforce"))) }}
+          {{- fail "namespaceDomainBinding must be one of off, warn, enforce" }}
+          {{- end }}
           {{- if and (not (kindIs "invalid" $mcr)) (or (lt (float64 $mcr) 1.0) (ne (float64 $mcr) (float64 (int $mcr)))) }}
           {{- fail "maxConcurrentReconciles must be an integer >= 1" }}
           {{- end }}
           {{- if and (not (kindIs "invalid" $burst)) (ne (float64 $burst) (float64 (int $burst))) }}
           {{- fail "kubeApiBurst must be an integer" }}
           {{- end }}
-          {{- if not (and (kindIs "invalid" $mcr) (kindIs "invalid" $qps) (kindIs "invalid" $burst) (kindIs "invalid" $mrd)) }}
+          {{- if not (and (kindIs "invalid" $mcr) (kindIs "invalid" $qps) (kindIs "invalid" $burst) (kindIs "invalid" $mrd) (kindIs "invalid" $ndb) (empty $nde)) }}
           args:
             {{- if not (kindIs "invalid" $mcr) }}
             - --max-concurrent-reconciles={{ $mcr | int }}
@@ -63,6 +68,14 @@ spec:
             {{- end }}
             {{- if not (kindIs "invalid" $mrd) }}
             - {{ printf "--max-retry-duration=%s" $mrd | quote }}
+            {{- end }}
+            {{- if not (kindIs "invalid" $ndb) }}
+            - --namespace-domain-binding={{ $ndb }}
+            {{- end }}
+            {{- range $namespace, $domains := $nde }}
+            {{- range $domain := $domains }}
+            - {{ printf "--namespace-domain-exception=%s=%s" $namespace $domain | quote }}
+            {{- end }}
             {{- end }}
           {{- end }}
           securityContext:

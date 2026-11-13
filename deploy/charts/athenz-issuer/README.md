@@ -150,6 +150,16 @@ Client-side burst limit for Kubernetes API requests (--kube-api-burst), applied 
 How long after a CertificateRequest is created the controller keeps retrying it after an error (--max-retry-duration). Must be a positive Go duration string such as "5m". When it has passed, the next error marks the request Failed.  
 If unset, the controller default of 2m is used.
 
+#### **namespaceDomainBinding** ~ `string`
+
+Whether to check, before requesting a ServiceAccount token, that the namespace in a request's SPIFFE URI may hold identities of the Athenz domain the URI names (--namespace-domain-binding). The check passes when the namespace name is the dashed form of the domain (sports.user-services -> sports-user--services); otherwise the namespace's athenz.io/domain annotation, else its athenz.io/domain label, must equal the domain. One of off, warn (log a mismatch but still sign) or enforce (fail the request). Annotate platform namespaces such as istio-system and cert-manager before setting enforce.  
+If unset, the controller default of warn is used.
+
+#### **namespaceDomainExceptions** ~ `object`
+
+Namespaces that may hold identities of Athenz domains other than the one their annotation or name names  
+(--namespace-domain-exception). A map of namespace to a list of domains.
+
 #### **hostAliases** ~ `array`
 
 Optional /etc/hosts entries to inject into the controller pod (Pod.spec.hostAliases).

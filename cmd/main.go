@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -44,6 +45,16 @@ import (
 	athenzissuerapi "github.com/AthenZ/athenz-issuer/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
+
+// stringList is a flag.Value that collects every occurrence of a repeated flag.
+type stringList []string
+
+func (l *stringList) String() string { return strings.Join(*l, ",") }
+
+func (l *stringList) Set(v string) error {
+	*l = append(*l, v)
+	return nil
+}
 
 const inClusterNamespacePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 
@@ -74,6 +85,15 @@ func main() {
 	flag.IntVar(&maxConcurrentReconciles, "max-concurrent-reconciles", 1, "The maximum number of CertificateRequests and CertificateSigningRequests reconciled in parallel. Issuer reconciliation always uses one worker.")
 	flag.Float64Var(&kubeAPIQPS, "kube-api-qps", -1, "The client-side QPS limit for requests to the Kubernetes API server. It applies to every API client the issuer uses, including the ServiceAccount get and TokenRequest made for each signed request. Each client enforces the limit separately. Zero or a negative value disables client-side rate limiting.")
 	flag.IntVar(&kubeAPIBurst, "kube-api-burst", 0, "The client-side burst limit for requests to the Kubernetes API server, applied to the same clients as --kube-api-qps. Only used when --kube-api-qps is positive; if unset or not positive it defaults to max(10, 2*QPS).")
+
+	var namespaceDomainBinding string
+	var namespaceDomainExceptions stringList
+	flag.StringVar(&namespaceDomainBinding, "namespace-domain-binding", string(controller.BindingWarn),
+		"Whether to check, before requesting a ServiceAccount token, that the namespace in a request's SPIFFE URI may hold identities of the Athenz domain the URI names. "+
+			"The check passes when the namespace name is the dashed form of the domain (sports.user-services -> sports-user--services); otherwise the namespace's athenz.io/domain annotation, else its athenz.io/domain label, must equal the domain. "+
+			"One of off, warn (log a mismatch but still sign) or enforce (fail the request).")
+	flag.Var(&namespaceDomainExceptions, "namespace-domain-exception",
+		"A <namespace>=<domain> pair that passes the namespace domain binding check even though the namespace's annotation or name names another domain. May be repeated.")
 
 	flag.Parse()
 
@@ -121,12 +141,24 @@ func main() {
 
 	setupLog := ctrl.Log.WithName("setup")
 
+	binding, err := controller.ParseNamespaceDomainBinding(namespaceDomainBinding)
+	if err != nil {
+		setupLog.Error(err, "invalid --namespace-domain-binding")
+		os.Exit(1)
+	}
+	exceptions, err := controller.ParseNamespaceDomainExceptions(namespaceDomainExceptions)
+	if err != nil {
+		setupLog.Error(err, "invalid --namespace-domain-exception")
+		os.Exit(1)
+	}
+	setupLog.Info("namespace domain binding", "binding", string(binding), "exceptions", exceptions.String())
+
 	if maxRetryDuration <= 0 {
 		setupLog.Error(fmt.Errorf("got %s", maxRetryDuration), "--max-retry-duration must be positive")
 		os.Exit(1)
 	}
 
-	err := getInClusterNamespace(&clusterResourceNamespace)
+	err = getInClusterNamespace(&clusterResourceNamespace)
 	if err != nil {
 		if errors.Is(err, errNotInCluster) {
 			setupLog.Error(err, "please supply --cluster-resource-namespace")
@@ -190,7 +222,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.Signer{MaxRetryDuration: maxRetryDuration}).SetupWithManager(ctx, mgr); err != nil {
+	if err = (&controller.Signer{
+		MaxRetryDuration:          maxRetryDuration,
+		NamespaceDomainBinding:    binding,
+		NamespaceDomainExceptions: exceptions,
+	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller")
 		os.Exit(1)
 	}

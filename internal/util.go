@@ -48,6 +48,13 @@ func ExtractNamespaceAndServiceAccountFromSpiffeURI(spiffeURI string) (string, s
 	return namespace, serviceAccount, nil
 }
 
+// NamespaceToDomain maps a namespace name to the Athenz domain it is named after, reversing
+// the naming convention in which "-" in a domain becomes "--" and "." becomes "-".
+// e.g. sports-user--services--nonprod -> sports.user-services-nonprod
+func NamespaceToDomain(namespace string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(namespace, "-", "."), "..", "-")
+}
+
 // ExtractSpiffeURIFromAnnotations returns the identity annotation set by csi-driver-athenz.
 // The annotation is not covered by the CSR signature, so it is only used to detect a
 // CertificateRequest whose annotation disagrees with its CSR; it never selects the identity.

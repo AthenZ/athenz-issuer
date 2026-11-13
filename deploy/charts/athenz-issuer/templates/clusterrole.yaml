@@ -37,3 +37,6 @@ rules:
 - apiGroups: [""]
   resources: ["serviceaccounts","serviceaccounts/token"]
   verbs: ["create", "get"]
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get"]

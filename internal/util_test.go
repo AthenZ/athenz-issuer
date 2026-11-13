@@ -310,3 +310,17 @@ func defaultCSRDetails() CertReqDetails {
 		URIs: append(uris, uri),
 	}
 }
+func TestNamespaceToDomain(t *testing.T) {
+	tests := map[string]string{
+		"app-backend":                    "app.backend",
+		"sports-user--services--nonprod": "sports.user-services-nonprod",
+		"athenz-aws--prod":               "athenz.aws-prod",
+		"single":                         "single",
+		"istio-system":                   "istio.system",
+	}
+	for ns, want := range tests {
+		if got := NamespaceToDomain(ns); got != want {
+			t.Errorf("NamespaceToDomain(%q) = %q, want %q", ns, got, want)
+		}
+	}
+}

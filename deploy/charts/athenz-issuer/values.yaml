@@ -91,6 +91,23 @@ replicaCount: 1
 # +docs:property
 # maxRetryDuration: 5m
 
+# Whether to check, before requesting a ServiceAccount token, that the namespace in a request's SPIFFE URI
+# may hold identities of the Athenz domain the URI names (--namespace-domain-binding).
+# The check passes when the namespace name is the dashed form of the domain (sports.user-services ->
+# sports-user--services); otherwise the namespace's athenz.io/domain annotation, else its athenz.io/domain
+# label, must equal the domain.
+# One of off, warn (log a mismatch but still sign) or enforce (fail the request).
+# Annotate platform namespaces such as istio-system and cert-manager before setting enforce.
+# If unset, the controller default of warn is used.
+# +docs:property
+# namespaceDomainBinding: enforce
+
+# Namespaces that may hold identities of Athenz domains other than the one their annotation or name names
+# (--namespace-domain-exception). A map of namespace to a list of domains.
+# +docs:property
+# namespaceDomainExceptions:
+#   shared-tools: ["platform.tools", "platform.ci"]
+
 # Optional /etc/hosts entries to inject into the controller pod (Pod.spec.hostAliases).
 # +docs:property
 # hostAliases: []
