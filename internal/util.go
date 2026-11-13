@@ -48,6 +48,9 @@ func ExtractNamespaceAndServiceAccountFromSpiffeURI(spiffeURI string) (string, s
 	return namespace, serviceAccount, nil
 }
 
+// ExtractSpiffeURIFromAnnotations returns the identity annotation set by csi-driver-athenz.
+// The annotation is not covered by the CSR signature, so it is only used to detect a
+// CertificateRequest whose annotation disagrees with its CSR; it never selects the identity.
 func ExtractSpiffeURIFromAnnotations(annotations map[string]string) (string, error) {
 	spiffeURI, ok := annotations["csi.cert-manager.athenz.io/identity"]
 	if !ok {
