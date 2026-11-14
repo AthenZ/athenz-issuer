@@ -18,6 +18,7 @@ package issuerutil
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -29,6 +30,9 @@ const (
 
 var (
 	regex = regexp.MustCompile(SpiffeUriPattern)
+
+	// ErrMultipleSpiffeURIs is returned for a CSR that carries more than one SPIFFE URI.
+	ErrMultipleSpiffeURIs = errors.New("CSR contains more than one SPIFFE URI")
 )
 
 // ExtractNamespaceAndServiceAccountFromSpiffeURI Given a spiffe uri in the format of spiffe://<trust-domain>/ns/<ns>/sa/<sa>
@@ -46,6 +50,13 @@ func ExtractNamespaceAndServiceAccountFromSpiffeURI(spiffeURI string) (string, s
 	serviceAccount := matches[2]
 
 	return namespace, serviceAccount, nil
+}
+
+// NamespaceToDomain maps a namespace name to the Athenz domain it is named after, reversing
+// the naming convention in which "-" in a domain becomes "--" and "." becomes "-".
+// e.g. sports-user--services--nonprod -> sports.user-services-nonprod
+func NamespaceToDomain(namespace string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(namespace, "-", "."), "..", "-")
 }
 
 // ExtractSpiffeURIFromAnnotations returns the identity annotation set by csi-driver-athenz.
@@ -107,11 +118,19 @@ func ExtractSpiffeURIFromCSR(csrBytes []byte) (string, error) {
 		return "", fmt.Errorf("failed to parse CSR: %v", err)
 	}
 
+	// Like ZTS, accept exactly one SPIFFE URI: the SPIFFE URI that is checked must be the only one
+	// the CSR carries.
+	spiffeURI := ""
 	for _, uri := range csr.URIs {
 		if strings.HasPrefix(uri.String(), "spiffe://") {
-			return uri.String(), nil
+			if spiffeURI != "" {
+				return "", ErrMultipleSpiffeURIs
+			}
+			spiffeURI = uri.String()
 		}
 	}
-
-	return "", fmt.Errorf("unable to extract SPIFFE URI from CSR")
+	if spiffeURI == "" {
+		return "", fmt.Errorf("unable to extract SPIFFE URI from CSR")
+	}
+	return spiffeURI, nil
 }

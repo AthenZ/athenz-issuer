@@ -26,6 +26,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -61,9 +62,19 @@ import (
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts;serviceaccounts/token,verbs=create;get
+// +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get
 
 type Signer struct {
 	MaxRetryDuration time.Duration
+
+	// NamespaceDomainBinding selects whether Sign checks that the SPIFFE URI's namespace may
+	// hold identities of the Athenz domain it names. The zero value is BindingOff.
+	NamespaceDomainBinding NamespaceDomainBinding
+	// NamespaceDomainExceptions are admin-configured namespace=domain pairs that pass the check.
+	NamespaceDomainExceptions NamespaceDomainExceptions
+	// CrossNamespaceRequesters are the namespaces whose requests may name a SPIFFE URI in
+	// another namespace. The same NamespaceDomainBinding mode governs that check.
+	CrossNamespaceRequesters CrossNamespaceRequesters
 
 	kubeClient kubernetes.Interface
 }
@@ -166,7 +177,11 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 	if err != nil {
 		log.Error(err, "Unable to extract spiffe URI from CSR",
 			"cr_name", cr.GetName(), "cr_namespace", cr.GetNamespace())
-		return signer.PEMBundle{}, fmt.Errorf("unable to extract SPIFFE URI from CSR: %w", err)
+		err = fmt.Errorf("unable to extract SPIFFE URI from CSR: %w", err)
+		if errors.Is(err, issuerutil.ErrMultipleSpiffeURIs) {
+			return signer.PEMBundle{}, signer.PermanentError{Err: err}
+		}
+		return signer.PEMBundle{}, err
 	}
 	if annotated, aerr := issuerutil.ExtractSpiffeURIFromAnnotations(cr.GetAnnotations()); aerr == nil && annotated != spiffeURI {
 		err := fmt.Errorf("identity annotation SPIFFE URI %q does not match CSR SPIFFE URI %q", annotated, spiffeURI)
@@ -181,6 +196,43 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 		log.Error(err, "Unable to extract namespace and service account from spiffe URI",
 			"cr_name", cr.GetName(), "spiffe_uri", spiffeURI)
 		return signer.PEMBundle{}, fmt.Errorf("%w: %q", err, spiffeURI)
+	}
+
+	athenzDomain, athenzService, err := issuerutil.ResolveDomainService(spiffeSA)
+	if err != nil {
+		log.Error(err, "Unable to resolve Athenz domain and service from service account",
+			"cr_name", cr.GetName(), "cr_namespace", cr.GetNamespace(),
+			"namespace", spiffeNS, "service_account", spiffeSA, "spiffe_uri", spiffeURI)
+		return signer.PEMBundle{}, fmt.Errorf("unable to resolve Athenz domain and service for CertificateRequest %s/%s: %w",
+			cr.GetNamespace(), cr.GetName(), err)
+	}
+
+	// Check the namespaces before minting a token: the issuer can mint a token for any
+	// ServiceAccount, so it must not do so for one in a namespace the request may not ask for,
+	// or whose namespace may not hold the domain.
+	if s.NamespaceDomainBinding == BindingWarn || s.NamespaceDomainBinding == BindingEnforce {
+		err := checkRequesterNamespace(s.CrossNamespaceRequesters, cr.GetNamespace(), spiffeNS)
+		// enforce refuses on the first failure; warn runs both checks so the log shows every
+		// reason enforce would refuse the request.
+		if err == nil || s.NamespaceDomainBinding == BindingWarn {
+			err = errors.Join(err, checkNamespaceDomain(ctx, s.kubeClient, s.NamespaceDomainExceptions, spiffeNS, athenzDomain))
+		}
+		if err != nil {
+			isMismatch := isBindingMismatch(err)
+			logKV := []any{"cr_name", cr.GetName(), "cr_namespace", cr.GetNamespace(),
+				"namespace", spiffeNS, "athenz_domain", athenzDomain, "binding", string(s.NamespaceDomainBinding)}
+			switch {
+			case s.NamespaceDomainBinding == BindingWarn:
+				log.Info("Namespace domain binding check failed; signing anyway because the binding is warn",
+					append(logKV, "namespace_domain_mismatch", isMismatch, "reason", err.Error())...)
+			case isMismatch:
+				log.Error(err, "Refusing CertificateRequest: namespace domain binding check failed", logKV...)
+				return signer.PEMBundle{}, signer.PermanentError{Err: err}
+			default:
+				log.Error(err, "Unable to check the namespace's Athenz domain", logKV...)
+				return signer.PEMBundle{}, err
+			}
+		}
 	}
 
 	// Request a service account token from the Kubernetes API server.
@@ -208,14 +260,6 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 		"time_remaining_until_deadline", retryDeadline.Sub(time.Now()).Round(time.Millisecond).String(),
 	)
 
-	athenzDomain, athenzService, err := issuerutil.ResolveDomainService(spiffeSA)
-	if err != nil {
-		log.Error(err, "Unable to resolve Athenz domain and service from service account",
-			"cr_name", cr.GetName(), "cr_namespace", cr.GetNamespace(),
-			"namespace", spiffeNS, "service_account", spiffeSA, "spiffe_uri", spiffeURI)
-		return signer.PEMBundle{}, fmt.Errorf("unable to resolve Athenz domain and service for CertificateRequest %s/%s: %w",
-			cr.GetNamespace(), cr.GetName(), err)
-	}
 	athenzProvider := fmt.Sprintf("%s.%s-%s", spec.ProviderPrefix, spec.Cloud, spec.Region)
 
 	data, err := json.Marshal(&K8SAttestationData{

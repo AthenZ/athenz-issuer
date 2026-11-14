@@ -23,6 +23,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"net"
 	"net/url"
 	"testing"
@@ -308,5 +309,56 @@ func defaultCSRDetails() CertReqDetails {
 		Country:    "US",
 		Org:        "Athenz",
 		URIs: append(uris, uri),
+	}
+}
+func TestNamespaceToDomain(t *testing.T) {
+	tests := map[string]string{
+		"app-backend":                    "app.backend",
+		"sports-user--services--nonprod": "sports.user-services-nonprod",
+		"athenz-aws--prod":               "athenz.aws-prod",
+		"single":                         "single",
+		"istio-system":                   "istio.system",
+	}
+	for ns, want := range tests {
+		if got := NamespaceToDomain(ns); got != want {
+			t.Errorf("NamespaceToDomain(%q) = %q, want %q", ns, got, want)
+		}
+	}
+}
+
+func TestExtractSpiffeURIFromCSRRejectsMultipleSpiffeURIs(t *testing.T) {
+	mustURL := func(s string) *url.URL {
+		u, err := url.Parse(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	allowed := "spiffe://cluster.local/ns/default/sa/athenz.api"
+	tests := []struct {
+		name    string
+		uris    []string
+		want    string
+		wantErr error
+	}{
+		{name: "one SPIFFE URI", uris: []string{allowed}, want: allowed},
+		{name: "one SPIFFE URI and a non-SPIFFE URI", uris: []string{"athenz://instanceid/provider/id", allowed}, want: allowed},
+		{name: "two SPIFFE URIs", uris: []string{allowed, "spiffe://cluster.local/ns/other/sa/other.svc"}, wantErr: ErrMultipleSpiffeURIs},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			details := defaultCSRDetails()
+			details.URIs = nil
+			for _, u := range tt.uris {
+				details.URIs = append(details.URIs, mustURL(u))
+			}
+			got, err := ExtractSpiffeURIFromCSR([]byte(generateX509CSR(genKey(), details)))
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("ExtractSpiffeURIFromCSR error = %v, want %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("ExtractSpiffeURIFromCSR = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

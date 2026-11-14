@@ -9,6 +9,9 @@
         "crds": {
           "$ref": "#/$defs/helm-values.crds"
         },
+        "crossNamespaceRequesters": {
+          "$ref": "#/$defs/helm-values.crossNamespaceRequesters"
+        },
         "fullnameOverride": {
           "$ref": "#/$defs/helm-values.fullnameOverride"
         },
@@ -38,6 +41,12 @@
         },
         "nameOverride": {
           "$ref": "#/$defs/helm-values.nameOverride"
+        },
+        "namespaceDomainBinding": {
+          "$ref": "#/$defs/helm-values.namespaceDomainBinding"
+        },
+        "namespaceDomainExceptions": {
+          "$ref": "#/$defs/helm-values.namespaceDomainExceptions"
         },
         "replicaCount": {
           "$ref": "#/$defs/helm-values.replicaCount"
@@ -75,6 +84,11 @@
     "helm-values.crds.keep": {
       "default": true,
       "type": "boolean"
+    },
+    "helm-values.crossNamespaceRequesters": {
+      "description": "Namespaces whose requests may name a SPIFFE URI in another namespace (--cross-namespace-requester), such as the namespace where istio-csr creates requests on behalf of workloads. Under namespaceDomainBinding warn or enforce, a request from any other namespace must name its own namespace. Anyone who can create a CertificateRequest in a listed namespace can request an identity in any namespace, so keep the list short. A cluster-scoped Kubernetes CertificateSigningRequest has no namespace, so under enforce it is always refused.",
+      "items": {},
+      "type": "array"
     },
     "helm-values.fullnameOverride": {
       "description": "Override the full name"
@@ -155,6 +169,14 @@
     },
     "helm-values.nameOverride": {
       "description": "Override the name"
+    },
+    "helm-values.namespaceDomainBinding": {
+      "description": "Whether to check, before requesting a ServiceAccount token, that the namespace in a request's SPIFFE URI may hold identities of the Athenz domain the URI names (--namespace-domain-binding). The check passes when the namespace name is the dashed form of the domain (sports.user-services -> sports-user--services); otherwise the namespace's athenz.io/domain annotation, else its athenz.io/domain label, must equal the domain. One of off, warn (log a mismatch but still sign) or enforce (fail the request). Annotate platform namespaces such as istio-system and cert-manager before setting enforce.\nIf unset, the controller default of warn is used.",
+      "type": "string"
+    },
+    "helm-values.namespaceDomainExceptions": {
+      "description": "Namespaces that may hold identities of Athenz domains other than the one their annotation or name names\n(--namespace-domain-exception). A map of namespace to a list of domains.",
+      "type": "object"
     },
     "helm-values.replicaCount": {
       "default": 1,
