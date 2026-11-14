@@ -24,6 +24,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -139,6 +140,14 @@ func newFakeKubeFor(cases []signCase) *fake.Clientset {
 func newTestCR(t *testing.T, namespace, serviceAccount string) signer.CertificateRequestObject {
 	t.Helper()
 	spiffe := fmt.Sprintf("spiffe://cluster.local/ns/%s/sa/%s", namespace, serviceAccount)
+	return newTestCRWithAnnotations(t, namespace, serviceAccount,
+		map[string]string{"csi.cert-manager.athenz.io/identity": spiffe})
+}
+
+// newTestCRWithAnnotations builds a CR in namespace whose CSR names namespace/serviceAccount.
+func newTestCRWithAnnotations(t *testing.T, namespace, serviceAccount string, annotations map[string]string) signer.CertificateRequestObject {
+	t.Helper()
+	spiffe := fmt.Sprintf("spiffe://cluster.local/ns/%s/sa/%s", namespace, serviceAccount)
 	uri, err := url.Parse(spiffe)
 	if err != nil {
 		t.Fatal(err)
@@ -156,7 +165,7 @@ func newTestCR(t *testing.T, namespace, serviceAccount string) signer.Certificat
 			Name:              "cr-" + serviceAccount,
 			Namespace:         namespace,
 			CreationTimestamp: metav1.NewTime(time.Now()),
-			Annotations:       map[string]string{"csi.cert-manager.athenz.io/identity": spiffe},
+			Annotations:       annotations,
 		},
 		Spec: cmapi.CertificateRequestSpec{
 			Request: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}),
@@ -428,6 +437,55 @@ func TestSignServiceAccountLookupUsesInjectedClient(t *testing.T) {
 			if got := string(reqs[0].info.X509CertInstanceId); got != tt.wantInstID {
 				t.Errorf("instance id = %q, want %q", got, tt.wantInstID)
 			}
+		})
+	}
+}
+
+func TestSignIdentityComesFromCSR(t *testing.T) {
+	const other = "spiffe://cluster.local/ns/other-ns/sa/other.svc"
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		wantErr     string
+	}{
+		{name: "no annotation (istio-csr, BYO)", annotations: nil},
+		{name: "annotation equal to CSR (csi-driver)", annotations: map[string]string{
+			"csi.cert-manager.athenz.io/identity": "spiffe://cluster.local/ns/team-a/sa/dom.a.svc-a"}},
+		{name: "annotation naming another identity", annotations: map[string]string{
+			"csi.cert-manager.athenz.io/identity": other},
+			wantErr: "does not match CSR SPIFFE URI"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTwoIssuerCases(t)[0]
+			kube := newFakeKube(testSA(c.namespace, c.sa), testSA("other-ns", "other.svc"))
+			s := &Signer{MaxRetryDuration: time.Minute, kubeClient: kube}
+
+			bundle, err := s.Sign(context.Background(), newTestCRWithAnnotations(t, c.namespace, c.sa, tt.annotations), c.issuer)
+			reqs := c.zts.recorded()
+
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Sign error = %v, want it to contain %q", err, tt.wantErr)
+				}
+				if !errors.As(err, new(signer.PermanentError)) {
+					t.Errorf("Sign error %v is not a PermanentError", err)
+				}
+				for _, a := range kube.Actions() {
+					if a.GetSubresource() == "token" {
+						t.Errorf("a ServiceAccount token was requested in namespace %q for a rejected request", a.GetNamespace())
+					}
+				}
+				if len(reqs) != 0 {
+					t.Errorf("ZTS got %d requests for a rejected request, want 0", len(reqs))
+				}
+				return
+			}
+			checkSignResult(t, c, bundle, err)
+			if len(reqs) != 1 {
+				t.Fatalf("ZTS got %d requests, want 1", len(reqs))
+			}
+			checkZTSRequest(t, c, reqs[0])
 		})
 	}
 }

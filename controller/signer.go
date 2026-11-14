@@ -159,16 +159,20 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 	}
 	csrBytes := details.CSR
 
-	// Get the service account name from cr
-	spiffeURI, err := issuerutil.ExtractSpiffeURIFromAnnotations(cr.GetAnnotations())
+	// The signed CSR is the only source of the identity: it is what the approver validated
+	// against the requester. The CertificateRequest annotation is not covered by the CSR
+	// signature and is not checked by the approver, so it must never select the identity.
+	spiffeURI, err := issuerutil.ExtractSpiffeURIFromCSR(csrBytes)
 	if err != nil {
-		log.Error(err, "Unable to extract spiffe URI from annotations, falling back to CSR")
-		spiffeURI, err = issuerutil.ExtractSpiffeURIFromCSR(csrBytes)
-		if err != nil {
-			log.Error(err, "Unable to extract spiffe URI from CSR",
-				"cr_name", cr.GetName(), "cr_namespace", cr.GetNamespace())
-			return signer.PEMBundle{}, fmt.Errorf("unable to extract SPIFFE URI from annotations or CSR: %w", err)
-		}
+		log.Error(err, "Unable to extract spiffe URI from CSR",
+			"cr_name", cr.GetName(), "cr_namespace", cr.GetNamespace())
+		return signer.PEMBundle{}, fmt.Errorf("unable to extract SPIFFE URI from CSR: %w", err)
+	}
+	if annotated, aerr := issuerutil.ExtractSpiffeURIFromAnnotations(cr.GetAnnotations()); aerr == nil && annotated != spiffeURI {
+		err := fmt.Errorf("identity annotation SPIFFE URI %q does not match CSR SPIFFE URI %q", annotated, spiffeURI)
+		log.Error(err, "Refusing CertificateRequest with conflicting identity",
+			"cr_name", cr.GetName(), "cr_namespace", cr.GetNamespace())
+		return signer.PEMBundle{}, signer.PermanentError{Err: err}
 	}
 
 	log.Info("Extracted spiffe URI", "spiffe_uri", spiffeURI)
