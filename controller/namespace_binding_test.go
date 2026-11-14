@@ -120,7 +120,7 @@ func TestCheckNamespaceDomain(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("checkNamespaceDomain = %v, want it to contain %q", err, tt.wantErr)
 			}
-			var m *namespaceDomainMismatch
+			var m *namespaceDomainMismatchError
 			if got := errors.As(err, &m); got != tt.mismatch {
 				t.Errorf("error is a mismatch = %v, want %v", got, tt.mismatch)
 			}
@@ -157,8 +157,8 @@ func TestParseNamespaceDomainExceptions(t *testing.T) {
 }
 
 // signWithBinding signs a request for namespace/serviceAccount and reports the result,
-// whether a ServiceAccount token was requested, and how many ZTS calls were made.
-func signWithBinding(t *testing.T, binding NamespaceDomainBinding, ns *corev1.Namespace, namespace, serviceAccount, crNamespace string) (error, bool, int) {
+// whether a ServiceAccount token was requested and how many ZTS calls were made, then the error.
+func signWithBinding(t *testing.T, binding NamespaceDomainBinding, requesters []string, ns *corev1.Namespace, namespace, serviceAccount, crNamespace string) (bool, int, error) {
 	t.Helper()
 	zts := newFakeZTS(t, "cert")
 	kube := newFakeKube(testSA(namespace, serviceAccount))
@@ -168,7 +168,11 @@ func signWithBinding(t *testing.T, binding NamespaceDomainBinding, ns *corev1.Na
 		}
 	}
 	kube.ClearActions()
-	s := &Signer{MaxRetryDuration: time.Minute, kubeClient: kube, NamespaceDomainBinding: binding}
+	cnr, err := ParseCrossNamespaceRequesters(requesters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Signer{MaxRetryDuration: time.Minute, kubeClient: kube, NamespaceDomainBinding: binding, CrossNamespaceRequesters: cnr}
 	issuer := &athenzissuerapi.AthenzClusterIssuer{
 		ObjectMeta: metav1.ObjectMeta{Name: "issuer"},
 		Spec:       athenzissuerapi.AthenzCertificateSource{ZTSEndpoint: zts.endpoint, Cloud: "aws", Region: "us-east-1", ProviderPrefix: "p"},
@@ -178,14 +182,14 @@ func signWithBinding(t *testing.T, binding NamespaceDomainBinding, ns *corev1.Na
 		// istio-csr creates the CR in its own namespace for a workload elsewhere
 		cr = withCRNamespace(t, cr, crNamespace)
 	}
-	_, err := s.Sign(context.Background(), cr, issuer)
+	_, err = s.Sign(context.Background(), cr, issuer)
 	tokenRequested := false
 	for _, a := range kube.Actions() {
 		if a.GetSubresource() == "token" {
 			tokenRequested = true
 		}
 	}
-	return err, tokenRequested, len(zts.recorded())
+	return tokenRequested, len(zts.recorded()), err
 }
 
 func withCRNamespace(t *testing.T, cr signer.CertificateRequestObject, namespace string) signer.CertificateRequestObject {
@@ -205,6 +209,7 @@ func TestSignNamespaceDomainBinding(t *testing.T) {
 		ns            *corev1.Namespace
 		namespace, sa string
 		crNamespace   string
+		requesters    []string
 		wantErr       string
 		wantPermanent bool
 	}{
@@ -216,8 +221,26 @@ func TestSignNamespaceDomainBinding(t *testing.T) {
 			wantErr: "may not hold identities", wantPermanent: true},
 		{name: "enforce: workload in its domain namespace signs", binding: BindingEnforce,
 			ns: testNamespace("app-frontend", ""), namespace: "app-frontend", sa: "app.frontend.curl"},
-		{name: "enforce: ambient workload SVID with CR in cert-manager signs", binding: BindingEnforce,
-			ns: testNamespace("app-frontend", ""), namespace: "app-frontend", sa: "app.frontend.curl", crNamespace: "cert-manager"},
+		{name: "enforce: ambient workload SVID with CR in a listed requester namespace signs", binding: BindingEnforce,
+			ns: testNamespace("app-frontend", ""), namespace: "app-frontend", sa: "app.frontend.curl",
+			crNamespace: "cert-manager", requesters: []string{"cert-manager"}},
+		{name: "enforce: CR in an unlisted namespace naming another namespace is refused", binding: BindingEnforce,
+			ns: testNamespace("app-frontend", ""), namespace: "app-frontend", sa: "app.frontend.curl",
+			crNamespace: "tenant-a", requesters: []string{"cert-manager"},
+			wantErr: `CertificateRequest in namespace "tenant-a" may not ask for an identity in namespace "app-frontend"`, wantPermanent: true},
+		{name: "enforce: CR in cert-manager is refused when no requester is listed", binding: BindingEnforce,
+			ns: testNamespace("app-frontend", ""), namespace: "app-frontend", sa: "app.frontend.curl",
+			crNamespace: "cert-manager", wantErr: "may not ask for an identity", wantPermanent: true},
+		{name: "enforce: a listed requester still needs the target namespace to hold the domain", binding: BindingEnforce,
+			ns: testNamespace("tenant-a", "tenant.a"), namespace: "tenant-a", sa: "other.svc",
+			crNamespace: "cert-manager", requesters: []string{"cert-manager"},
+			wantErr: "may not hold identities", wantPermanent: true},
+		{name: "warn: CR in an unlisted namespace naming another namespace still signs", binding: BindingWarn,
+			ns: testNamespace("app-frontend", ""), namespace: "app-frontend", sa: "app.frontend.curl", crNamespace: "tenant-a"},
+		{name: "warn: requester and domain mismatch both still sign", binding: BindingWarn,
+			ns: testNamespace("tenant-a", "tenant.a"), namespace: "tenant-a", sa: "other.svc", crNamespace: "tenant-b"},
+		{name: "off: CR in an unlisted namespace naming another namespace signs", binding: BindingOff,
+			ns: testNamespace("app-frontend", ""), namespace: "app-frontend", sa: "app.frontend.curl", crNamespace: "tenant-a"},
 		{name: "enforce: SA in a second namespace annotated with the same domain signs", binding: BindingEnforce,
 			ns: testNamespace("payments-batch", "payments.prod"), namespace: "payments-batch", sa: "payments.prod.worker"},
 		{name: "enforce: ambient waypoint signs", binding: BindingEnforce,
@@ -242,7 +265,7 @@ func TestSignNamespaceDomainBinding(t *testing.T) {
 			if crNS == "" {
 				crNS = tt.namespace
 			}
-			err, tokenRequested, ztsCalls := signWithBinding(t, tt.binding, tt.ns, tt.namespace, tt.sa, crNS)
+			tokenRequested, ztsCalls, err := signWithBinding(t, tt.binding, tt.requesters, tt.ns, tt.namespace, tt.sa, crNS)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("Sign = %v, want success", err)
@@ -283,5 +306,78 @@ func TestSignBindingOffMakesNoNamespaceCalls(t *testing.T) {
 	}
 	if namespaceCalls != 0 {
 		t.Errorf("binding off made %d namespace calls, want 0", namespaceCalls)
+	}
+}
+
+func TestCheckRequesterNamespace(t *testing.T) {
+	requesters, err := ParseCrossNamespaceRequesters([]string{"cert-manager", " kube-addons "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		requester, namespace string
+		wantErr              bool
+	}{
+		{requester: "app-frontend", namespace: "app-frontend"},
+		{requester: "cert-manager", namespace: "app-frontend"},
+		{requester: "kube-addons", namespace: "app-frontend"},
+		{requester: "tenant-a", namespace: "app-frontend", wantErr: true},
+		// A cluster-scoped CertificateSigningRequest has no namespace.
+		{requester: "", namespace: "app-frontend", wantErr: true},
+	}
+	for _, tt := range tests {
+		err := checkRequesterNamespace(requesters, tt.requester, tt.namespace)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("checkRequesterNamespace(%q, %q) = %v, want error %v", tt.requester, tt.namespace, err, tt.wantErr)
+		}
+		if err != nil && !isBindingMismatch(err) {
+			t.Errorf("checkRequesterNamespace(%q, %q) = %v, want a binding mismatch", tt.requester, tt.namespace, err)
+		}
+	}
+}
+
+func TestParseCrossNamespaceRequesters(t *testing.T) {
+	for _, bad := range [][]string{{""}, {"  "}, {"cert-manager", ""}, {"Cert-Manager"}, {"kube.addons"}, {"ns/x"}} {
+		if _, err := ParseCrossNamespaceRequesters(bad); err == nil {
+			t.Errorf("ParseCrossNamespaceRequesters(%q) accepted an invalid value", bad)
+		}
+	}
+	r, err := ParseCrossNamespaceRequesters([]string{"kube-addons", "cert-manager", "cert-manager"})
+	if err != nil || r.String() != "cert-manager,kube-addons" {
+		t.Errorf("ParseCrossNamespaceRequesters = %q, %v", r.String(), err)
+	}
+}
+
+// In warn, both checks run, so the log carries every reason enforce would refuse.
+func TestBindingWarnReportsBothReasons(t *testing.T) {
+	kube := newFakeKube()
+	if _, err := kube.CoreV1().Namespaces().Create(context.Background(), testNamespace("tenant-a", "tenant.a"), metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	err := errors.Join(checkRequesterNamespace(nil, "tenant-b", "tenant-a"),
+		checkNamespaceDomain(context.Background(), kube, nil, "tenant-a", "other"))
+	if !isBindingMismatch(err) {
+		t.Fatalf("joined error %v is not a binding mismatch", err)
+	}
+	for _, want := range []string{"may not ask for an identity", "may not hold identities"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("joined error %q does not contain %q", err, want)
+		}
+	}
+}
+
+// A Kubernetes CertificateSigningRequest is cluster-scoped: under enforce it is refused before
+// any token is requested.
+func TestSignEnforceRefusesClusterScopedRequest(t *testing.T) {
+	tokenRequested, ztsCalls, err := signWithBinding(t, BindingEnforce, []string{"cert-manager"},
+		testNamespace("app-frontend", ""), "app-frontend", "app.frontend.curl", "")
+	if err == nil || !strings.Contains(err.Error(), "cluster-scoped request") {
+		t.Fatalf("Sign = %v, want a cluster-scoped refusal", err)
+	}
+	if !errors.As(err, new(signer.PermanentError)) {
+		t.Errorf("Sign = %v, want a permanent error", err)
+	}
+	if tokenRequested || ztsCalls != 0 {
+		t.Errorf("token requested = %v, ZTS calls = %d, want false and 0", tokenRequested, ztsCalls)
 	}
 }

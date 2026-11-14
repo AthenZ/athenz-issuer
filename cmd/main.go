@@ -88,12 +88,18 @@ func main() {
 
 	var namespaceDomainBinding string
 	var namespaceDomainExceptions stringList
+	var crossNamespaceRequesters stringList
 	flag.StringVar(&namespaceDomainBinding, "namespace-domain-binding", string(controller.BindingWarn),
 		"Whether to check, before requesting a ServiceAccount token, that the namespace in a request's SPIFFE URI may hold identities of the Athenz domain the URI names. "+
 			"The check passes when the namespace name is the dashed form of the domain (sports.user-services -> sports-user--services); otherwise the namespace's athenz.io/domain annotation, else its athenz.io/domain label, must equal the domain. "+
 			"One of off, warn (log a mismatch but still sign) or enforce (fail the request).")
 	flag.Var(&namespaceDomainExceptions, "namespace-domain-exception",
 		"A <namespace>=<domain> pair that passes the namespace domain binding check even though the namespace's annotation or name names another domain. May be repeated.")
+	flag.Var(&crossNamespaceRequesters, "cross-namespace-requester",
+		"A namespace whose requests may name a SPIFFE URI in another namespace, such as the namespace where istio-csr creates requests on behalf of workloads. "+
+			"Under --namespace-domain-binding warn or enforce, a request from any other namespace must name its own namespace. "+
+			"Anyone who can create a CertificateRequest in a listed namespace can request an identity in any namespace. "+
+			"A cluster-scoped CertificateSigningRequest has no namespace, so under enforce it is always refused. May be repeated.")
 
 	flag.Parse()
 
@@ -151,7 +157,13 @@ func main() {
 		setupLog.Error(err, "invalid --namespace-domain-exception")
 		os.Exit(1)
 	}
-	setupLog.Info("namespace domain binding", "binding", string(binding), "exceptions", exceptions.String())
+	requesters, err := controller.ParseCrossNamespaceRequesters(crossNamespaceRequesters)
+	if err != nil {
+		setupLog.Error(err, "invalid --cross-namespace-requester")
+		os.Exit(1)
+	}
+	setupLog.Info("namespace domain binding", "binding", string(binding), "exceptions", exceptions.String(),
+		"cross_namespace_requesters", requesters.String())
 
 	if maxRetryDuration <= 0 {
 		setupLog.Error(fmt.Errorf("got %s", maxRetryDuration), "--max-retry-duration must be positive")
@@ -226,6 +238,7 @@ func main() {
 		MaxRetryDuration:          maxRetryDuration,
 		NamespaceDomainBinding:    binding,
 		NamespaceDomainExceptions: exceptions,
+		CrossNamespaceRequesters:  requesters,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller")
 		os.Exit(1)

@@ -160,6 +160,10 @@ If unset, the controller default of warn is used.
 Namespaces that may hold identities of Athenz domains other than the one their annotation or name names  
 (--namespace-domain-exception). A map of namespace to a list of domains.
 
+#### **crossNamespaceRequesters** ~ `array`
+
+Namespaces whose requests may name a SPIFFE URI in another namespace (--cross-namespace-requester), such as the namespace where istio-csr creates requests on behalf of workloads. Under namespaceDomainBinding warn or enforce, a request from any other namespace must name its own namespace. Anyone who can create a CertificateRequest in a listed namespace can request an identity in any namespace, so keep the list short. A cluster-scoped Kubernetes CertificateSigningRequest has no namespace, so under enforce it is always refused.
+
 #### **hostAliases** ~ `array`
 
 Optional /etc/hosts entries to inject into the controller pod (Pod.spec.hostAliases).

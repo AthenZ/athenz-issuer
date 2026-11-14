@@ -46,8 +46,14 @@ spec:
           {{- $mrd := .Values.maxRetryDuration }}
           {{- $ndb := .Values.namespaceDomainBinding }}
           {{- $nde := .Values.namespaceDomainExceptions }}
+          {{- $cnr := .Values.crossNamespaceRequesters }}
           {{- if and (not (kindIs "invalid" $ndb)) (not (has $ndb (list "off" "warn" "enforce"))) }}
           {{- fail "namespaceDomainBinding must be one of off, warn, enforce" }}
+          {{- end }}
+          {{- range $namespace := $cnr }}
+          {{- if not (kindIs "string" $namespace) }}
+          {{- fail "crossNamespaceRequesters must be a list of namespace names" }}
+          {{- end }}
           {{- end }}
           {{- if and (not (kindIs "invalid" $mcr)) (or (lt (float64 $mcr) 1.0) (ne (float64 $mcr) (float64 (int $mcr)))) }}
           {{- fail "maxConcurrentReconciles must be an integer >= 1" }}
@@ -55,7 +61,7 @@ spec:
           {{- if and (not (kindIs "invalid" $burst)) (ne (float64 $burst) (float64 (int $burst))) }}
           {{- fail "kubeApiBurst must be an integer" }}
           {{- end }}
-          {{- if not (and (kindIs "invalid" $mcr) (kindIs "invalid" $qps) (kindIs "invalid" $burst) (kindIs "invalid" $mrd) (kindIs "invalid" $ndb) (empty $nde)) }}
+          {{- if not (and (kindIs "invalid" $mcr) (kindIs "invalid" $qps) (kindIs "invalid" $burst) (kindIs "invalid" $mrd) (kindIs "invalid" $ndb) (empty $nde) (empty $cnr)) }}
           args:
             {{- if not (kindIs "invalid" $mcr) }}
             - --max-concurrent-reconciles={{ $mcr | int }}
@@ -76,6 +82,9 @@ spec:
             {{- range $domain := $domains }}
             - {{ printf "--namespace-domain-exception=%s=%s" $namespace $domain | quote }}
             {{- end }}
+            {{- end }}
+            {{- range $namespace := $cnr }}
+            - {{ printf "--cross-namespace-requester=%s" $namespace | quote }}
             {{- end }}
           {{- end }}
           securityContext:

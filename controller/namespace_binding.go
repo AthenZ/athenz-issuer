@@ -18,11 +18,13 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 
 	issuerutil "github.com/AthenZ/athenz-issuer/internal"
@@ -94,18 +96,82 @@ func (e NamespaceDomainExceptions) String() string {
 	return strings.Join(entries, ",")
 }
 
-// namespaceDomainMismatch reports that a namespace may not hold identities of a domain. It is
+// CrossNamespaceRequesters lists namespaces whose CertificateRequests may name a SPIFFE URI in
+// another namespace, such as the namespace where istio-csr creates requests on behalf of
+// workloads. Anyone who can create a CertificateRequest in one of these namespaces can request
+// an identity in any namespace, so the list must stay short and its RBAC tight.
+type CrossNamespaceRequesters map[string]struct{}
+
+// ParseCrossNamespaceRequesters parses repeated --cross-namespace-requester values.
+func ParseCrossNamespaceRequesters(entries []string) (CrossNamespaceRequesters, error) {
+	requesters := CrossNamespaceRequesters{}
+	for _, entry := range entries {
+		namespace := strings.TrimSpace(entry)
+		if errs := validation.IsDNS1123Label(namespace); len(errs) > 0 {
+			return nil, fmt.Errorf("invalid cross-namespace requester %q: must be a namespace name: %s", entry, strings.Join(errs, "; "))
+		}
+		requesters[namespace] = struct{}{}
+	}
+	return requesters, nil
+}
+
+// String lists the namespaces in a stable order, for logging.
+func (r CrossNamespaceRequesters) String() string {
+	namespaces := make([]string, 0, len(r))
+	for namespace := range r {
+		namespaces = append(namespaces, namespace)
+	}
+	sort.Strings(namespaces)
+	return strings.Join(namespaces, ",")
+}
+
+// requesterNamespaceMismatchError reports that a CertificateRequest asks for an identity in a
+// namespace other than its own, from a namespace that may not do so.
+type requesterNamespaceMismatchError struct {
+	requester, namespace string
+}
+
+func (m *requesterNamespaceMismatchError) Error() string {
+	if m.requester == "" {
+		return fmt.Sprintf("a cluster-scoped request may not ask for an identity in namespace %q", m.namespace)
+	}
+	return fmt.Sprintf("a CertificateRequest in namespace %q may not ask for an identity in namespace %q", m.requester, m.namespace)
+}
+
+// checkRequesterNamespace returns nil when a request created in requester may ask for an
+// identity in namespace: the two are the same, or requester is a listed cross-namespace
+// requester. Otherwise it returns a *requesterNamespaceMismatchError. A cluster-scoped request
+// (a Kubernetes CertificateSigningRequest) has no namespace and never passes across namespaces.
+func checkRequesterNamespace(requesters CrossNamespaceRequesters, requester, namespace string) error {
+	if requester == namespace {
+		return nil
+	}
+	if _, ok := requesters[requester]; ok && requester != "" {
+		return nil
+	}
+	return &requesterNamespaceMismatchError{requester, namespace}
+}
+
+// isBindingMismatch reports whether err is a refusal by the binding checks, as opposed to a
+// failure to read the Namespace, which is worth retrying.
+func isBindingMismatch(err error) bool {
+	var domain *namespaceDomainMismatchError
+	var requester *requesterNamespaceMismatchError
+	return errors.As(err, &domain) || errors.As(err, &requester)
+}
+
+// namespaceDomainMismatchError reports that a namespace may not hold identities of a domain. It is
 // distinct from a failure to read the Namespace, which is worth retrying.
-type namespaceDomainMismatch struct {
+type namespaceDomainMismatchError struct {
 	namespace, domain, reason string
 }
 
-func (m *namespaceDomainMismatch) Error() string {
+func (m *namespaceDomainMismatchError) Error() string {
 	return fmt.Sprintf("namespace %q may not hold identities of Athenz domain %q: %s", m.namespace, m.domain, m.reason)
 }
 
 // checkNamespaceDomain returns nil when namespace may hold identities of domain, a
-// *namespaceDomainMismatch when it may not, and any other error when the Namespace could not
+// *namespaceDomainMismatchError when it may not, and any other error when the Namespace could not
 // be read.
 //
 // A namespace whose name is the dashed form of domain (sports-user--services for
@@ -124,16 +190,16 @@ func checkNamespaceDomain(ctx context.Context, kube kubernetes.Interface, except
 		if annotated == domain {
 			return nil
 		}
-		return &namespaceDomainMismatch{namespace, domain,
+		return &namespaceDomainMismatchError{namespace, domain,
 			fmt.Sprintf("its name does not map to the domain and it is annotated %s=%s", AthenzDomainKey, annotated)}
 	}
 	if labeled := ns.GetLabels()[AthenzDomainKey]; labeled != "" {
 		if labeled == domain {
 			return nil
 		}
-		return &namespaceDomainMismatch{namespace, domain,
+		return &namespaceDomainMismatchError{namespace, domain,
 			fmt.Sprintf("its name does not map to the domain and it is labeled %s=%s", AthenzDomainKey, labeled)}
 	}
-	return &namespaceDomainMismatch{namespace, domain,
+	return &namespaceDomainMismatchError{namespace, domain,
 		fmt.Sprintf("its name maps to domain %q and it has no %s annotation or label", issuerutil.NamespaceToDomain(namespace), AthenzDomainKey)}
 }

@@ -9,6 +9,9 @@
         "crds": {
           "$ref": "#/$defs/helm-values.crds"
         },
+        "crossNamespaceRequesters": {
+          "$ref": "#/$defs/helm-values.crossNamespaceRequesters"
+        },
         "fullnameOverride": {
           "$ref": "#/$defs/helm-values.fullnameOverride"
         },
@@ -81,6 +84,11 @@
     "helm-values.crds.keep": {
       "default": true,
       "type": "boolean"
+    },
+    "helm-values.crossNamespaceRequesters": {
+      "description": "Namespaces whose requests may name a SPIFFE URI in another namespace (--cross-namespace-requester), such as the namespace where istio-csr creates requests on behalf of workloads. Under namespaceDomainBinding warn or enforce, a request from any other namespace must name its own namespace. Anyone who can create a CertificateRequest in a listed namespace can request an identity in any namespace, so keep the list short. A cluster-scoped Kubernetes CertificateSigningRequest has no namespace, so under enforce it is always refused.",
+      "items": {},
+      "type": "array"
     },
     "helm-values.fullnameOverride": {
       "description": "Override the full name"

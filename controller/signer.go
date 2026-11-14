@@ -72,6 +72,9 @@ type Signer struct {
 	NamespaceDomainBinding NamespaceDomainBinding
 	// NamespaceDomainExceptions are admin-configured namespace=domain pairs that pass the check.
 	NamespaceDomainExceptions NamespaceDomainExceptions
+	// CrossNamespaceRequesters are the namespaces whose requests may name a SPIFFE URI in
+	// another namespace. The same NamespaceDomainBinding mode governs that check.
+	CrossNamespaceRequesters CrossNamespaceRequesters
 
 	kubeClient kubernetes.Interface
 }
@@ -200,12 +203,18 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 			cr.GetNamespace(), cr.GetName(), err)
 	}
 
-	// Check the namespace before minting a token: the issuer can mint a token for any
-	// ServiceAccount, so it must not do so for one whose namespace may not hold the domain.
+	// Check the namespaces before minting a token: the issuer can mint a token for any
+	// ServiceAccount, so it must not do so for one in a namespace the request may not ask for,
+	// or whose namespace may not hold the domain.
 	if s.NamespaceDomainBinding == BindingWarn || s.NamespaceDomainBinding == BindingEnforce {
-		if err := checkNamespaceDomain(ctx, s.kubeClient, s.NamespaceDomainExceptions, spiffeNS, athenzDomain); err != nil {
-			var mismatch *namespaceDomainMismatch
-			isMismatch := errors.As(err, &mismatch)
+		err := checkRequesterNamespace(s.CrossNamespaceRequesters, cr.GetNamespace(), spiffeNS)
+		// enforce refuses on the first failure; warn runs both checks so the log shows every
+		// reason enforce would refuse the request.
+		if err == nil || s.NamespaceDomainBinding == BindingWarn {
+			err = errors.Join(err, checkNamespaceDomain(ctx, s.kubeClient, s.NamespaceDomainExceptions, spiffeNS, athenzDomain))
+		}
+		if err != nil {
+			isMismatch := isBindingMismatch(err)
 			logKV := []any{"cr_name", cr.GetName(), "cr_namespace", cr.GetNamespace(),
 				"namespace", spiffeNS, "athenz_domain", athenzDomain, "binding", string(s.NamespaceDomainBinding)}
 			switch {
@@ -213,7 +222,7 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 				log.Info("Namespace domain binding check failed; signing anyway because the binding is warn",
 					append(logKV, "namespace_domain_mismatch", isMismatch, "reason", err.Error())...)
 			case isMismatch:
-				log.Error(err, "Refusing CertificateRequest: namespace may not hold this Athenz domain", logKV...)
+				log.Error(err, "Refusing CertificateRequest: namespace domain binding check failed", logKV...)
 				return signer.PEMBundle{}, signer.PermanentError{Err: err}
 			default:
 				log.Error(err, "Unable to check the namespace's Athenz domain", logKV...)

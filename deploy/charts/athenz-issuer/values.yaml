@@ -108,6 +108,14 @@ replicaCount: 1
 # namespaceDomainExceptions:
 #   shared-tools: ["platform.tools", "platform.ci"]
 
+# Namespaces whose requests may name a SPIFFE URI in another namespace (--cross-namespace-requester),
+# such as the namespace where istio-csr creates requests on behalf of workloads. Under namespaceDomainBinding
+# warn or enforce, a request from any other namespace must name its own namespace. Anyone who can create
+# a CertificateRequest in a listed namespace can request an identity in any namespace, so keep the list short.
+# A cluster-scoped Kubernetes CertificateSigningRequest has no namespace, so under enforce it is always refused.
+# +docs:property
+# crossNamespaceRequesters: ["cert-manager"]
+
 # Optional /etc/hosts entries to inject into the controller pod (Pod.spec.hostAliases).
 # +docs:property
 # hostAliases: []
