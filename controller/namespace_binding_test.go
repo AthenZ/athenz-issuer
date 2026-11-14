@@ -18,11 +18,18 @@ package controller
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/cert-manager/issuer-lib/controllers/signer"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,6 +37,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	issuerutil "github.com/AthenZ/athenz-issuer/internal"
 	athenzissuerapi "github.com/AthenZ/athenz-issuer/v1"
 )
 
@@ -379,5 +387,51 @@ func TestSignEnforceRefusesClusterScopedRequest(t *testing.T) {
 	}
 	if tokenRequested || ztsCalls != 0 {
 		t.Errorf("token requested = %v, ZTS calls = %d, want false and 0", tokenRequested, ztsCalls)
+	}
+}
+
+// A CSR with a second SPIFFE URI is refused before any token is requested, whatever the
+// binding: only one identity may be checked and signed.
+func TestSignRefusesMultipleSpiffeURIs(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var uris []*url.URL
+	for _, s := range []string{"spiffe://cluster.local/ns/app-frontend/sa/app.frontend.curl", "spiffe://cluster.local/ns/tenant-a/sa/other.svc"} {
+		u, err := url.Parse(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		uris = append(uris, u)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{URIs: uris}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr := signer.CertificateRequestObjectFromCertificateRequest(&cmapi.CertificateRequest{
+		ObjectMeta: metav1.ObjectMeta{Name: "cr-multi", Namespace: "app-frontend", CreationTimestamp: metav1.NewTime(time.Now())},
+		Spec:       cmapi.CertificateRequestSpec{Request: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})},
+	})
+	for _, binding := range []NamespaceDomainBinding{BindingOff, BindingWarn, BindingEnforce} {
+		zts := newFakeZTS(t, "cert")
+		kube := newFakeKube(testSA("app-frontend", "app.frontend.curl"))
+		s := &Signer{MaxRetryDuration: time.Minute, kubeClient: kube, NamespaceDomainBinding: binding}
+		issuer := &athenzissuerapi.AthenzClusterIssuer{
+			ObjectMeta: metav1.ObjectMeta{Name: "issuer"},
+			Spec:       athenzissuerapi.AthenzCertificateSource{ZTSEndpoint: zts.endpoint, Cloud: "aws", Region: "us-east-1", ProviderPrefix: "p"},
+		}
+		_, err := s.Sign(context.Background(), cr, issuer)
+		if !errors.Is(err, issuerutil.ErrMultipleSpiffeURIs) || !errors.As(err, new(signer.PermanentError)) {
+			t.Fatalf("binding %s: Sign = %v, want a permanent multiple-SPIFFE-URI error", binding, err)
+		}
+		for _, a := range kube.Actions() {
+			if a.GetSubresource() == "token" {
+				t.Errorf("binding %s: a ServiceAccount token was requested", binding)
+			}
+		}
+		if n := len(zts.recorded()); n != 0 {
+			t.Errorf("binding %s: ZTS got %d requests, want 0", binding, n)
+		}
 	}
 }

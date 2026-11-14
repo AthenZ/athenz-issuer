@@ -177,7 +177,11 @@ func (s *Signer) Sign(ctx context.Context, cr signer.CertificateRequestObject, i
 	if err != nil {
 		log.Error(err, "Unable to extract spiffe URI from CSR",
 			"cr_name", cr.GetName(), "cr_namespace", cr.GetNamespace())
-		return signer.PEMBundle{}, fmt.Errorf("unable to extract SPIFFE URI from CSR: %w", err)
+		err = fmt.Errorf("unable to extract SPIFFE URI from CSR: %w", err)
+		if errors.Is(err, issuerutil.ErrMultipleSpiffeURIs) {
+			return signer.PEMBundle{}, signer.PermanentError{Err: err}
+		}
+		return signer.PEMBundle{}, err
 	}
 	if annotated, aerr := issuerutil.ExtractSpiffeURIFromAnnotations(cr.GetAnnotations()); aerr == nil && annotated != spiffeURI {
 		err := fmt.Errorf("identity annotation SPIFFE URI %q does not match CSR SPIFFE URI %q", annotated, spiffeURI)
